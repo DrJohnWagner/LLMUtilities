@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 import logging
+from pathlib import Path
 from typing import Optional
 
 from .types import ChatUsage
@@ -61,103 +63,45 @@ class ImageCostEstimate:
     cost_per_image_usd: float
     total_cost_usd: float
 
-
-PRICING: dict[str, Pricing] = {
-    # OpenAI
-    "gpt-5.4": Pricing(
-        input_per_million_tokens=2.50,
-        output_per_million_tokens=15.00,
-        cached_input_per_million_tokens=0.25,
-    ),
-    "gpt-5.4-mini": Pricing(
-        input_per_million_tokens=0.75,
-        output_per_million_tokens=4.50,
-        cached_input_per_million_tokens=0.075,
-    ),
-    "gpt-5.4-nano": Pricing(
-        input_per_million_tokens=0.20,
-        output_per_million_tokens=1.25,
-        cached_input_per_million_tokens=0.02,
-    ),
-
-    # Anthropic
-    # cached_input_per_million_tokens here means cache hits / refreshes, not cache writes
-    "claude-sonnet-4.6": Pricing(
-        input_per_million_tokens=3.00,
-        output_per_million_tokens=15.00,
-        cached_input_per_million_tokens=0.30,
-    ),
-    "claude-haiku-4.5": Pricing(
-        input_per_million_tokens=1.00,
-        output_per_million_tokens=5.00,
-        cached_input_per_million_tokens=0.10,
-    ),
-    "claude-opus-4.6": Pricing(
-        input_per_million_tokens=5.00,
-        output_per_million_tokens=25.00,
-        cached_input_per_million_tokens=0.50,
-    ),
-
-    # Google
-    # For tiered models, these are the standard <= 200k prompt rates where applicable.
-    "gemini-2.5-pro": Pricing(
-        input_per_million_tokens=1.25,
-        output_per_million_tokens=10.00,
-        cached_input_per_million_tokens=0.125,
-    ),
-    "gemini-2.5-pro-long": Pricing(
-        input_per_million_tokens=2.50,
-        output_per_million_tokens=15.00,
-        cached_input_per_million_tokens=0.25,
-    ),
-    "gemini-2.5-flash": Pricing(
-        input_per_million_tokens=0.30,
-        output_per_million_tokens=2.50,
-        cached_input_per_million_tokens=0.03,
-    ),
-    "gemini-2.5-flash-lite": Pricing(
-        input_per_million_tokens=0.10,
-        output_per_million_tokens=0.40,
-        cached_input_per_million_tokens=0.01,
-    ),
-
-    # Deprecated, but included as a temporary convenience if you still use it
-    "gemini-2.0-flash": Pricing(
-        input_per_million_tokens=0.10,
-        output_per_million_tokens=0.40,
-        cached_input_per_million_tokens=0.025,
-    ),
-
-    # Handy aliases for local defaults people often set
-    "claude-sonnet-4-6": Pricing(
-        input_per_million_tokens=3.00,
-        output_per_million_tokens=15.00,
-        cached_input_per_million_tokens=0.30,
-    ),
-    "claude-haiku-4-5": Pricing(
-        input_per_million_tokens=1.00,
-        output_per_million_tokens=5.00,
-        cached_input_per_million_tokens=0.10,
-    ),
-    "claude-opus-4-6": Pricing(
-        input_per_million_tokens=5.00,
-        output_per_million_tokens=25.00,
-        cached_input_per_million_tokens=0.50,
-    ),
-}
+def _pricing_file() -> Path:
+    return Path(__file__).with_name("PRICING.json")
 
 
-IMAGE_PRICING: dict[str, ImagePricing] = {
-    # OpenAI image generation (representative defaults; override as needed)
-    "gpt-image-1.5": ImagePricing(
-        per_image_usd={
-            "1024x1024": 0.040,
-            "1024x1536": 0.080,
-            "1536x1024": 0.080,
-        },
-        default_per_image_usd=0.040,
-    )
-}
+def _image_pricing_file() -> Path:
+    return Path(__file__).with_name("IMAGE_PRICING.json")
+
+
+def _load_pricing_table(path: Path) -> dict[str, Pricing]:
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    table: dict[str, Pricing] = {}
+
+    for model, spec in raw.items():
+        table[model] = Pricing(
+            input_per_million_tokens=spec["input_per_million_tokens"],
+            output_per_million_tokens=spec["output_per_million_tokens"],
+            cached_input_per_million_tokens=spec.get("cached_input_per_million_tokens"),
+        )
+
+    return table
+
+
+def _load_image_pricing_table(path: Path) -> dict[str, ImagePricing]:
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    table: dict[str, ImagePricing] = {}
+
+    for model, spec in raw.items():
+        table[model] = ImagePricing(
+            per_image_usd=spec["per_image_usd"],
+            default_per_image_usd=spec.get("default_per_image_usd"),
+        )
+
+    return table
+
+
+PRICING: dict[str, Pricing] = _load_pricing_table(_pricing_file())
+
+
+IMAGE_PRICING: dict[str, ImagePricing] = _load_image_pricing_table(_image_pricing_file())
 
 
 def register_pricing(model: str, pricing: Pricing) -> None:

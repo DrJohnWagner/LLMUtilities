@@ -91,6 +91,12 @@ class TestImportability:
     def test_provider_google_importable(self):
         from LLMUtilities.providers.google import GoogleChatModel  # noqa: F401
 
+    def test_provider_moonshot_importable(self):
+        from LLMUtilities.providers.moonshot import MoonshotChatModel  # noqa: F401
+
+    def test_provider_deepseek_importable(self):
+        from LLMUtilities.providers.deepseek import DeepSeekChatModel  # noqa: F401
+
     def test_image_module(self):
         from LLMUtilities.image import generate_image, generate_image_b64  # noqa: F401
 
@@ -114,6 +120,8 @@ class TestImportability:
         import LLMUtilities.providers.openai  # noqa: F401
         import LLMUtilities.providers.anthropic  # noqa: F401
         import LLMUtilities.providers.google  # noqa: F401
+        import LLMUtilities.providers.moonshot  # noqa: F401
+        import LLMUtilities.providers.deepseek  # noqa: F401
 
 
 # ---------------------------------------------------------------------------
@@ -1019,6 +1027,114 @@ class TestOpenAIImageProvider:
             provider = OpenAIImageModel(api_key="fake")
             with pytest.raises(ProviderError, match=r"API error \(418\): teapot"):
                 provider.generate(ImageRequest(prompt="draw a bird"))
+
+
+class TestOpenAICompatibleProviders:
+    def test_moonshot_chat_provider_uses_openai_compatible_client(self):
+        from LLMUtilities.providers.moonshot import MoonshotChatModel
+
+        call_container: dict[str, object] = {}
+
+        class _Client:
+            def __init__(self, **kwargs):
+                call_container["client_kwargs"] = kwargs
+                self.chat = types.SimpleNamespace(
+                    completions=types.SimpleNamespace(create=self._create)
+                )
+
+            @staticmethod
+            def _create(**kwargs):
+                call_container["request_kwargs"] = kwargs
+                return types.SimpleNamespace(
+                    choices=[
+                        types.SimpleNamespace(
+                            message=types.SimpleNamespace(content="moonshot ok"),
+                            finish_reason="stop",
+                        )
+                    ],
+                    usage=types.SimpleNamespace(
+                        prompt_tokens=10,
+                        completion_tokens=2,
+                        total_tokens=12,
+                        prompt_tokens_details=types.SimpleNamespace(cached_tokens=4),
+                    ),
+                )
+
+        fake_module = types.ModuleType("openai")
+        fake_module.OpenAI = _Client
+        fake_module.AuthenticationError = type("AuthenticationError", (Exception,), {})
+        fake_module.RateLimitError = type("RateLimitError", (Exception,), {})
+        fake_module.APIConnectionError = type("APIConnectionError", (Exception,), {})
+        fake_module.APIStatusError = type("APIStatusError", (Exception,), {"status_code": 500, "message": "error"})
+
+        with patch.dict(sys.modules, {"openai": fake_module}):
+            provider = MoonshotChatModel(api_key="fake")
+            response = provider.chat(ChatRequest(messages=[Message(role="user", content="hello")]))
+
+        assert response.provider == "moonshot"
+        assert response.text == "moonshot ok"
+        assert response.usage.input_tokens == 10
+        assert response.usage.cached_input_tokens == 4
+        assert call_container["client_kwargs"]["base_url"] == "https://api.moonshot.ai/v1"
+        assert call_container["request_kwargs"]["model"] == "kimi-k2.6"
+
+    def test_deepseek_chat_provider_uses_openai_compatible_client(self):
+        from LLMUtilities.providers.deepseek import DeepSeekChatModel
+
+        call_container: dict[str, object] = {}
+
+        class _Client:
+            def __init__(self, **kwargs):
+                call_container["client_kwargs"] = kwargs
+                self.chat = types.SimpleNamespace(
+                    completions=types.SimpleNamespace(create=self._create)
+                )
+
+            @staticmethod
+            def _create(**kwargs):
+                call_container["request_kwargs"] = kwargs
+                return types.SimpleNamespace(
+                    choices=[
+                        types.SimpleNamespace(
+                            message=types.SimpleNamespace(content="deepseek ok"),
+                            finish_reason="stop",
+                        )
+                    ],
+                    usage=types.SimpleNamespace(
+                        prompt_tokens=7,
+                        completion_tokens=3,
+                        total_tokens=10,
+                        prompt_tokens_details=types.SimpleNamespace(cached_tokens=2),
+                    ),
+                )
+
+        fake_module = types.ModuleType("openai")
+        fake_module.OpenAI = _Client
+        fake_module.AuthenticationError = type("AuthenticationError", (Exception,), {})
+        fake_module.RateLimitError = type("RateLimitError", (Exception,), {})
+        fake_module.APIConnectionError = type("APIConnectionError", (Exception,), {})
+        fake_module.APIStatusError = type("APIStatusError", (Exception,), {"status_code": 500, "message": "error"})
+
+        with patch.dict(sys.modules, {"openai": fake_module}):
+            provider = DeepSeekChatModel(api_key="fake")
+            response = provider.chat(ChatRequest(messages=[Message(role="user", content="hello")]))
+
+        assert response.provider == "deepseek"
+        assert response.text == "deepseek ok"
+        assert response.usage.input_tokens == 7
+        assert response.usage.cached_input_tokens == 2
+        assert call_container["client_kwargs"]["base_url"] == "https://api.deepseek.com"
+        assert call_container["request_kwargs"]["model"] == "deepseek-v4-flash"
+
+
+class TestPricingTables:
+    def test_pricing_loaded_from_json(self):
+        from LLMUtilities.costs import PRICING, IMAGE_PRICING
+
+        assert "kimi-k3" in PRICING
+        assert PRICING["kimi-k2.7-code-highspeed"].output_per_million_tokens == pytest.approx(8.0)
+        assert "deepseek-v4-pro" in PRICING
+        assert "gpt-image-1.5" in IMAGE_PRICING
 
 
 # ---------------------------------------------------------------------------

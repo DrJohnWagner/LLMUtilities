@@ -65,10 +65,14 @@ class Settings:
     openai_api_key: Optional[str]
     anthropic_api_key: Optional[str]
     google_api_key: Optional[str]
+    moonshot_api_key: Optional[str]
+    deepseek_api_key: Optional[str]
 
     openai: ProviderDefaults
     anthropic: ProviderDefaults
     google: ProviderDefaults
+    moonshot: ProviderDefaults
+    deepseek: ProviderDefaults
 
     default_provider: str
     request_timeout_seconds: float
@@ -81,6 +85,8 @@ def get_settings() -> Settings:
         openai_api_key=_get_env_str("OPENAI_API_KEY"),
         anthropic_api_key=_get_env_str("ANTHROPIC_API_KEY"),
         google_api_key=_get_env_str("GOOGLE_API_KEY") or _get_env_str("GEMINI_API_KEY"),
+        moonshot_api_key=_get_env_str("MOONSHOT_API_KEY"),
+        deepseek_api_key=_get_env_str("DEEPSEEK_API_KEY"),
         openai=ProviderDefaults(
             chat_model=_get_env_str("OPENAI_CHAT_MODEL", "gpt-5-mini"),
             embedding_model=_get_env_str(
@@ -117,6 +123,16 @@ def get_settings() -> Settings:
             image_format=_get_env_str("GOOGLE_IMAGE_FORMAT"),
             temperature=_get_env_float("GOOGLE_TEMPERATURE"),
             max_output_tokens=_get_env_int("GOOGLE_MAX_OUTPUT_TOKENS"),
+        ),
+        moonshot=ProviderDefaults(
+            chat_model=_get_env_str("MOONSHOT_CHAT_MODEL", "kimi-k2.6"),
+            temperature=_get_env_float("MOONSHOT_TEMPERATURE"),
+            max_output_tokens=_get_env_int("MOONSHOT_MAX_OUTPUT_TOKENS"),
+        ),
+        deepseek=ProviderDefaults(
+            chat_model=_get_env_str("DEEPSEEK_CHAT_MODEL", "deepseek-v4-flash"),
+            temperature=_get_env_float("DEEPSEEK_TEMPERATURE"),
+            max_output_tokens=_get_env_int("DEEPSEEK_MAX_OUTPUT_TOKENS"),
         ),
         default_provider=_get_env_str("LLMUTILITIES_DEFAULT_PROVIDER", "openai")
         or "openai",

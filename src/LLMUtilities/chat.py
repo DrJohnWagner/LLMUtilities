@@ -58,9 +58,17 @@ def get_chat_model(provider: Optional[str] = None):
         from .providers.google import GoogleChatModel
         return GoogleChatModel()
 
+    if provider_name == "moonshot":
+        from .providers.moonshot import MoonshotChatModel
+        return MoonshotChatModel()
+
+    if provider_name == "deepseek":
+        from .providers.deepseek import DeepSeekChatModel
+        return DeepSeekChatModel()
+
     raise ConfigurationError(
         f"Unsupported provider: {provider_name!r}. "
-        f"Expected one of: 'openai', 'anthropic', 'google'."
+        f"Expected one of: 'openai', 'anthropic', 'google', 'moonshot', 'deepseek'."
     )
 
 
@@ -111,7 +119,7 @@ def chat(
     Provide either:
 
     - ``provider``: an instantiated provider object with a ``.chat(...)`` method, or
-    - ``provider_name``: ``'openai'``, ``'anthropic'``, or ``'google'``
+    - ``provider_name``: ``'openai'``, ``'anthropic'``, ``'google'``, ``'moonshot'`` or ``'deepseek'``
 
     If neither is given, the default provider from config is used.
     """

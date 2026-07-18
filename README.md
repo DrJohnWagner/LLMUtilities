@@ -8,6 +8,8 @@ Supported providers:
 - OpenAI
 - Anthropic
 - Google Gemini
+- Moonshot AI
+- DeepSeek
 
 ## Install
 
@@ -35,6 +37,8 @@ Set keys in environment variables (or `.env`):
 OPENAI_API_KEY=...
 ANTHROPIC_API_KEY=...
 GOOGLE_API_KEY=...  # GEMINI_API_KEY also works
+MOONSHOT_API_KEY=...
+DEEPSEEK_API_KEY=...
 ```
 
 Common settings:
@@ -50,6 +54,8 @@ Common settings:
 | `OPENAI_EMBEDDING_MODEL`               | `text-embedding-3-small` |
 | `GOOGLE_EMBEDDING_MODEL`               | `text-embedding-004`     |
 | `OPENAI_IMAGE_MODEL`                   | `gpt-image-1.5`          |
+| `MOONSHOT_CHAT_MODEL`                  | `kimi-k2.6`              |
+| `DEEPSEEK_CHAT_MODEL`                  | `deepseek-v4-flash`      |
 
 Image defaults can also be set via `OPENAI_IMAGE_SIZE`, `OPENAI_IMAGE_QUALITY`,
 `OPENAI_IMAGE_BACKGROUND`, and `OPENAI_IMAGE_FORMAT`.
@@ -72,12 +78,12 @@ if response.usage:
 
 ## Provider support matrix
 
-| Feature          | OpenAI            | Anthropic | Google   |
-| ---------------- | ----------------- | --------- | -------- |
-| Chat             | yes               | yes       | yes      |
-| Embeddings       | yes               | no        | yes      |
-| Image generation | yes               | no        | no       |
-| Token counting   | local `tiktoken` | API call  | API call |
+| Feature          | OpenAI            | Anthropic | Google   | Moonshot AI | DeepSeek |
+| ----------------- | ----------------- | --------- | -------- | ----------- | -------- |
+| Chat             | yes               | yes       | yes      | yes         | yes      |
+| Embeddings       | yes               | no        | yes      | no          | no       |
+| Image generation | yes               | no        | no       | no          | no       |
+| Token counting   | local `tiktoken` | API call  | API call | no          | no       |
 
 Notes:
 
@@ -183,6 +189,8 @@ n4 = count_message_tokens(messages, provider="openai")
 
 For OpenAI, token counting requires `tiktoken`.
 For multimodal `Message.content` lists, token counting uses text parts and ignores image parts.
+
+Moonshot AI and DeepSeek use the OpenAI chat completions API with provider-specific base URLs.
 
 ## Cost estimation
 
