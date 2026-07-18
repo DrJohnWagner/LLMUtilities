@@ -26,10 +26,23 @@ from .types import (
 from .chat import chat, chat_text, chat_usage
 from .image import generate_image, generate_image_b64
 from .costs import (
+    cost_for_image_response,
+    cost_for_image_usage,
     estimate_cost,
     estimate_image_cost,
+    get_image_pricing,
+    get_pricing,
+    ImagePricingCatalogue,
     ImagePricing,
     ImageCostEstimate,
+    Pricing,
+    PricingCatalogue,
+    print_image_cost_breakdown,
+    print_image_cost_summary,
+    register_image_pricing,
+    register_image_pricing_alias,
+    register_pricing,
+    validate_image_size_for_model,
 )
 from .embeddings import embed_texts, cosine_similarity
 from .exceptions import (
@@ -66,8 +79,21 @@ __all__ = [
     # costs
     "estimate_cost",
     "estimate_image_cost",
+    "cost_for_image_usage",
+    "cost_for_image_response",
+    "get_pricing",
+    "get_image_pricing",
+    "validate_image_size_for_model",
+    "Pricing",
+    "PricingCatalogue",
+    "ImagePricingCatalogue",
     "ImagePricing",
     "ImageCostEstimate",
+    "register_pricing",
+    "register_image_pricing",
+    "register_image_pricing_alias",
+    "print_image_cost_breakdown",
+    "print_image_cost_summary",
     # embeddings
     "embed_texts",
     "cosine_similarity",

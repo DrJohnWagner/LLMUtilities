@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from ..config import settings
+from ..costs import normalise_image_usage, validate_image_size_for_model
 from ..exceptions import (
     AuthenticationError,
     MissingDependencyError,
@@ -54,6 +55,7 @@ class OpenAIImageModel(BaseImageModel):
         resolved_format = request.format or settings.openai.image_format
 
         if resolved_size is not None:
+            validate_image_size_for_model(model_name, resolved_size)
             kwargs["size"] = resolved_size
         if resolved_quality is not None:
             kwargs["quality"] = resolved_quality
@@ -139,20 +141,4 @@ def _extract_usage(response: Any) -> ImageUsage:
     if usage_obj is None:
         return ImageUsage()
 
-    if isinstance(usage_obj, dict):
-        input_tokens = usage_obj.get("input_tokens")
-        output_tokens = usage_obj.get("output_tokens")
-        total_tokens = usage_obj.get("total_tokens")
-    else:
-        input_tokens = getattr(usage_obj, "input_tokens", None)
-        output_tokens = getattr(usage_obj, "output_tokens", None)
-        total_tokens = getattr(usage_obj, "total_tokens", None)
-
-    if total_tokens is None and (input_tokens is not None or output_tokens is not None):
-        total_tokens = (input_tokens or 0) + (output_tokens or 0)
-
-    return ImageUsage(
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        total_tokens=total_tokens,
-    )
+    return normalise_image_usage(usage_obj)

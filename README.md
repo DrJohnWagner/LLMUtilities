@@ -60,6 +60,12 @@ Common settings:
 Image defaults can also be set via `OPENAI_IMAGE_SIZE`, `OPENAI_IMAGE_QUALITY`,
 `OPENAI_IMAGE_BACKGROUND`, and `OPENAI_IMAGE_FORMAT`.
 
+For OpenAI image generation:
+
+- `gpt-image-1.5` remains the default model.
+- `gpt-image-2` is supported via `model="gpt-image-2"` or `OPENAI_IMAGE_MODEL=gpt-image-2`.
+- `gpt-image-2` accepts `size="auto"` or explicit `WIDTHxHEIGHT` values matching OpenAI constraints.
+
 ## Quick start
 
 ```python
@@ -79,11 +85,11 @@ if response.usage:
 ## Provider support matrix
 
 | Feature          | OpenAI            | Anthropic | Google   | Moonshot AI | DeepSeek |
-| ----------------- | ----------------- | --------- | -------- | ----------- | -------- |
+| ---------------- | ----------------- | --------- | -------- | ----------- | -------- |
 | Chat             | yes               | yes       | yes      | yes         | yes      |
 | Embeddings       | yes               | no        | yes      | no          | no       |
 | Image generation | yes               | no        | no       | no          | no       |
-| Token counting   | local `tiktoken` | API call  | API call | no          | no       |
+| Token counting   | local`tiktoken` | API call  | API call | no          | no       |
 
 Notes:
 
@@ -160,8 +166,9 @@ from LLMUtilities.image import generate_image, generate_image_b64
 img = generate_image(
     provider_name="openai",
     prompt="A moonlit harbor in ink",
-    model="gpt-image-1.5",
+    model="gpt-image-2",
     size="1024x1024",
+    quality="high",
     format="png",
 )
 
@@ -195,22 +202,60 @@ Moonshot AI and DeepSeek use the OpenAI chat completions API with provider-speci
 ## Cost estimation
 
 ```python
-from LLMUtilities.costs import estimate_cost, estimate_image_cost, print_cost_breakdown
+from LLMUtilities.costs import estimate_cost, estimate_image_cost, get_pricing, print_cost_breakdown
+from LLMUtilities.costs import cost_for_image_response, print_image_cost_breakdown
 from LLMUtilities.types import ChatUsage
 
 usage = ChatUsage(input_tokens=1200, output_tokens=300)
 estimate = estimate_cost(model="claude-sonnet-4.6", usage=usage)
 print_cost_breakdown(estimate=estimate, model="claude-sonnet-4.6")
 
+batch_estimate = estimate_cost(
+    model="gpt-5.4",
+    usage=ChatUsage(input_tokens=1000, output_tokens=500),
+    pricing_mode="batch",
+)
+
 img_estimate = estimate_image_cost(
     model="gpt-image-1.5",
     size="1024x1024",
+    quality="medium",
     image_count=3,
 )
 print(img_estimate.total_cost_usd)
+
+# Add token-based image costs to reference output estimates.
+img_with_usage = estimate_image_cost(
+    model="gpt-image-2",
+    size="1024x1024",
+    quality="low",
+    image_count=1,
+    text_input_tokens=1200,
+    cached_text_input_tokens=200,
+    image_input_tokens=640,
+    image_output_tokens=240,
+)
+print_image_cost_breakdown(estimate=img_with_usage)
+
+# Exact post-response costing from returned usage.
+exact_img_cost = cost_for_image_response(
+    response=img,
+    size="1024x1024",
+    quality="high",
+)
+print(exact_img_cost.total_cost_usd)
+
+pricing = get_pricing("gemini-2.5-pro")
+print(pricing.source_url)
 ```
 
-Use `register_pricing(...)` / `register_image_pricing(...)` for custom models.
+The bundled pricing table is versioned and stored in `src/LLMUtilities/PRICING.json`.
+`Pricing` is the canonical catalogue record and includes the explicit cache, batch,
+and long-context fields. Use `get_pricing(...)` to retrieve it. Use `register_pricing(...)` for in-memory overrides.
+Image pricing is also catalogue-backed via `src/LLMUtilities/IMAGE_PRICING.json`.
+`ImagePricing` and `ImagePricingCatalogue` expose standard and batch token rates plus
+reference output costs by quality and size. Offline image estimates require an explicit
+listed size and quality.
 
 ## Structured output and JSON parsing
 

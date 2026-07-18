@@ -108,7 +108,17 @@ class ImageArtifact(BaseModel):
 class ImageUsage(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    text_input_tokens: Optional[int] = None
+    cached_text_input_tokens: Optional[int] = None
+    text_output_tokens: Optional[int] = None
+    image_input_tokens: Optional[int] = None
+    cached_image_input_tokens: Optional[int] = None
+    image_output_tokens: Optional[int] = None
+    partial_image_output_tokens: Optional[int] = None
+    partial_image_count: Optional[int] = None
+
     input_tokens: Optional[int] = None
+    cached_input_tokens: Optional[int] = None
     output_tokens: Optional[int] = None
     total_tokens: Optional[int] = None
 

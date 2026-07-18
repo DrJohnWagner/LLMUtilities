@@ -25,13 +25,20 @@ from LLMUtilities.costs import (
     CostEstimate,
     ImageCostEstimate,
     ImagePricing,
+    ImagePricingCatalogue,
+    IMAGE_PRICING_CATALOGUE,
     Pricing,
+    PRICING_CATALOGUE,
+    cost_for_image_response,
+    cost_for_image_usage,
     cost_for_response,
     cost_from_usage,
     estimate_cost,
     estimate_image_cost,
     get_image_pricing,
     get_pricing,
+    normalise_image_usage,
+    validate_image_size_for_model,
 )
 from LLMUtilities.exceptions import (
     AuthenticationError,
@@ -870,11 +877,77 @@ class TestOpenAIImageProvider:
     def test_extract_image_usage_from_dict_payload(self):
         from LLMUtilities.providers.openai_image import _extract_usage
 
-        payload = {"usage": {"input_tokens": 10, "output_tokens": 5}}
+        payload = {
+            "usage": {
+                "input_tokens": 10,
+                "output_tokens": 5,
+                "input_tokens_details": {
+                    "text_tokens": 6,
+                    "cached_text_tokens": 2,
+                    "image_tokens": 2,
+                },
+                "output_tokens_details": {
+                    "image_tokens": 5,
+                    "partial_image_tokens": 1,
+                },
+            }
+        }
         usage = _extract_usage(payload)
         assert usage.input_tokens == 10
         assert usage.output_tokens == 5
         assert usage.total_tokens == 15
+        assert usage.text_input_tokens == 6
+        assert usage.cached_text_input_tokens == 2
+        assert usage.image_input_tokens == 2
+        assert usage.image_output_tokens == 5
+        assert usage.partial_image_output_tokens == 1
+
+    def test_openai_image_model_validates_gpt_image_2_size(self):
+        from LLMUtilities.providers.openai_image import OpenAIImageModel
+
+        class _AuthError(Exception):
+            pass
+
+        class _RateLimitError(Exception):
+            pass
+
+        class _ConnectionError(Exception):
+            pass
+
+        class _StatusError(Exception):
+            def __init__(self, status_code=500, message="status-failure"):
+                super().__init__(message)
+                self.status_code = status_code
+                self.message = message
+
+        class _Client:
+            def __init__(self, **kwargs):
+                self.images = types.SimpleNamespace(generate=self._generate)
+
+            @staticmethod
+            def _generate(**kwargs):
+                return {
+                    "data": [{"b64_json": "ZmFrZQ=="}],
+                    "usage": {"input_tokens": 1},
+                }
+
+        fake_module = types.ModuleType("openai")
+        fake_module.OpenAI = _Client
+        fake_module.AuthenticationError = _AuthError
+        fake_module.RateLimitError = _RateLimitError
+        fake_module.APIConnectionError = _ConnectionError
+        fake_module.APIStatusError = _StatusError
+
+        with patch.dict(sys.modules, {"openai": fake_module}):
+            provider = OpenAIImageModel(api_key="fake")
+            with pytest.raises(ValueError, match="multiples of 16"):
+                provider.generate(
+                    ImageRequest(
+                        prompt="draw a bird",
+                        model="gpt-image-2",
+                        size="1025x1024",
+                    )
+                )
 
     def test_openai_image_error_mapping_authentication(self):
         from LLMUtilities.providers.openai_image import OpenAIImageModel
@@ -1065,17 +1138,23 @@ class TestOpenAICompatibleProviders:
         fake_module.AuthenticationError = type("AuthenticationError", (Exception,), {})
         fake_module.RateLimitError = type("RateLimitError", (Exception,), {})
         fake_module.APIConnectionError = type("APIConnectionError", (Exception,), {})
-        fake_module.APIStatusError = type("APIStatusError", (Exception,), {"status_code": 500, "message": "error"})
+        fake_module.APIStatusError = type(
+            "APIStatusError", (Exception,), {"status_code": 500, "message": "error"}
+        )
 
         with patch.dict(sys.modules, {"openai": fake_module}):
             provider = MoonshotChatModel(api_key="fake")
-            response = provider.chat(ChatRequest(messages=[Message(role="user", content="hello")]))
+            response = provider.chat(
+                ChatRequest(messages=[Message(role="user", content="hello")])
+            )
 
         assert response.provider == "moonshot"
         assert response.text == "moonshot ok"
         assert response.usage.input_tokens == 10
         assert response.usage.cached_input_tokens == 4
-        assert call_container["client_kwargs"]["base_url"] == "https://api.moonshot.ai/v1"
+        assert (
+            call_container["client_kwargs"]["base_url"] == "https://api.moonshot.ai/v1"
+        )
         assert call_container["request_kwargs"]["model"] == "kimi-k2.6"
 
     def test_deepseek_chat_provider_uses_openai_compatible_client(self):
@@ -1113,11 +1192,15 @@ class TestOpenAICompatibleProviders:
         fake_module.AuthenticationError = type("AuthenticationError", (Exception,), {})
         fake_module.RateLimitError = type("RateLimitError", (Exception,), {})
         fake_module.APIConnectionError = type("APIConnectionError", (Exception,), {})
-        fake_module.APIStatusError = type("APIStatusError", (Exception,), {"status_code": 500, "message": "error"})
+        fake_module.APIStatusError = type(
+            "APIStatusError", (Exception,), {"status_code": 500, "message": "error"}
+        )
 
         with patch.dict(sys.modules, {"openai": fake_module}):
             provider = DeepSeekChatModel(api_key="fake")
-            response = provider.chat(ChatRequest(messages=[Message(role="user", content="hello")]))
+            response = provider.chat(
+                ChatRequest(messages=[Message(role="user", content="hello")])
+            )
 
         assert response.provider == "deepseek"
         assert response.text == "deepseek ok"
@@ -1131,20 +1214,35 @@ class TestPricingTables:
     def test_pricing_loaded_from_json(self):
         from LLMUtilities.costs import PRICING, IMAGE_PRICING
 
+        assert PRICING_CATALOGUE.schema_version == 1
+        assert PRICING_CATALOGUE.version == "2026-07-18"
+        assert get_pricing("gpt-5.4").provider == "openai"
+        assert get_pricing("gpt-5.4").batch_input_rate == pytest.approx(1.25)
+        assert get_pricing("gemini-pro").canonical_model_id == "gemini-2.5-pro"
         assert "kimi-k3" in PRICING
-        assert PRICING["kimi-k2.7-code-highspeed"].output_per_million_tokens == pytest.approx(8.0)
+        assert PRICING["kimi-k2.7-code-highspeed"].output_rate == pytest.approx(8.0)
         assert "deepseek-v4-pro" in PRICING
+        assert IMAGE_PRICING_CATALOGUE.schema_version == 1
+        assert IMAGE_PRICING_CATALOGUE.version == "2026-07-18"
         assert "gpt-image-1.5" in IMAGE_PRICING
+        assert "gpt-image-2" in IMAGE_PRICING
+        assert IMAGE_PRICING["gpt-image-2"].image_output_rate == pytest.approx(30.0)
 
 
 # ---------------------------------------------------------------------------
 # Cost estimation (existing, preserved)
 # ---------------------------------------------------------------------------
 
+
 class TestCostEstimation:
     def test_basic_cost_calculation(self):
         usage = ChatUsage(input_tokens=1_000_000, output_tokens=1_000_000)
-        pricing = Pricing(input_per_million_tokens=1.00, output_per_million_tokens=2.00)
+        pricing = Pricing(
+            provider="test",
+            canonical_model_id="test",
+            input_rate=1.00,
+            output_rate=2.00,
+        )
         estimate = cost_from_usage(usage=usage, pricing=pricing)
         assert estimate.input_cost_usd == pytest.approx(1.00)
         assert estimate.output_cost_usd == pytest.approx(2.00)
@@ -1157,11 +1255,17 @@ class TestCostEstimation:
         assert estimate.input_tokens == 500
         assert estimate.output_tokens == 250
 
+    def test_estimate_cost_batch_mode(self):
+        usage = ChatUsage(input_tokens=1_000_000, output_tokens=1_000_000)
+        estimate = estimate_cost(model="gpt-5.4", usage=usage, pricing_mode="batch")
+        assert estimate.input_cost_usd == pytest.approx(1.25)
+        assert estimate.output_cost_usd == pytest.approx(7.5)
+
     def test_cost_for_known_model(self):
-        assert get_pricing("claude-sonnet-4.6").input_per_million_tokens == 3.00
+        assert get_pricing("claude-sonnet-4.6").input_rate == 3.00
 
     def test_cost_for_alias_model(self):
-        assert get_pricing("gpt-5-mini").input_per_million_tokens > 0
+        assert get_pricing("gpt-5-mini").input_rate > 0
 
     def test_unknown_model_raises(self):
         with pytest.raises(KeyError):
@@ -1169,7 +1273,9 @@ class TestCostEstimation:
 
     def test_zero_tokens_costs_nothing(self):
         usage = ChatUsage(input_tokens=0, output_tokens=0)
-        assert estimate_cost(model="gemini-2.5-flash", usage=usage).total_cost_usd == 0.0
+        assert (
+            estimate_cost(model="gemini-2.5-flash", usage=usage).total_cost_usd == 0.0
+        )
 
     def test_cost_from_usage_prefers_normalised_cache_fields(self):
         usage = ChatUsage(
@@ -1179,9 +1285,11 @@ class TestCostEstimation:
             cache_creation_input_tokens=10,
         )
         pricing = Pricing(
-            input_per_million_tokens=1.00,
-            output_per_million_tokens=2.00,
-            cached_input_per_million_tokens=0.25,
+            provider="test",
+            canonical_model_id="test",
+            input_rate=1.00,
+            output_rate=2.00,
+            cached_read_rate=0.25,
         )
         estimate = cost_from_usage(usage=usage, pricing=pricing)
         assert estimate.cached_input_tokens == 25
@@ -1190,9 +1298,11 @@ class TestCostEstimation:
     def test_explicit_cache_overrides_still_work(self):
         usage = ChatUsage(cached_input_tokens=25, cache_creation_input_tokens=10)
         pricing = Pricing(
-            input_per_million_tokens=1.00,
-            output_per_million_tokens=2.00,
-            cached_input_per_million_tokens=0.25,
+            provider="test",
+            canonical_model_id="test",
+            input_rate=1.00,
+            output_rate=2.00,
+            cached_read_rate=0.25,
         )
         estimate = cost_from_usage(
             usage=usage,
@@ -1209,28 +1319,166 @@ class TestImageCostEstimation:
         estimate = estimate_image_cost(
             model="gpt-image-1.5",
             size="1024x1024",
+            quality="medium",
             image_count=2,
         )
         assert isinstance(estimate, ImageCostEstimate)
-        assert estimate.cost_per_image_usd == pytest.approx(0.040)
-        assert estimate.total_cost_usd == pytest.approx(0.080)
+        assert estimate.cost_per_image_usd == pytest.approx(0.034)
+        assert estimate.reference_image_output_cost_usd == pytest.approx(0.068)
+        assert estimate.total_cost_usd == pytest.approx(0.068)
 
     def test_estimate_image_cost_alias_model(self):
         estimate = estimate_image_cost(
             model="gpt-image-1",
             size="1024x1024",
+            quality="medium",
             image_count=1,
         )
         assert estimate.model == "gpt-image-1"
         assert estimate.total_cost_usd > 0
 
-    def test_estimate_image_cost_uses_default_size_rate(self):
+    def test_estimate_image_cost_requires_listed_size(self):
+        with pytest.raises(KeyError, match="Known sizes"):
+            estimate_image_cost(
+                model="gpt-image-1.5",
+                size="2048x2048",
+                quality="high",
+                image_count=1,
+            )
+
+    def test_estimate_image_cost_requires_explicit_quality(self):
+        with pytest.raises(KeyError, match="Known qualities"):
+            estimate_image_cost(
+                model="gpt-image-1.5",
+                size="1024x1024",
+                quality="ultra",
+                image_count=1,
+            )
+
+    def test_estimate_image_cost_rejects_auto_size_for_offline_estimate(self):
+        with pytest.raises(ValueError, match="explicit listed size"):
+            estimate_image_cost(
+                model="gpt-image-2",
+                size="auto",
+                quality="low",
+                image_count=1,
+            )
+
+    def test_estimate_image_cost_adds_input_token_costs(self):
         estimate = estimate_image_cost(
+            model="gpt-image-2",
+            size="1024x1024",
+            quality="low",
+            image_count=1,
+            text_input_tokens=1_000_000,
+            cached_text_input_tokens=100_000,
+            image_input_tokens=200_000,
+            cached_image_input_tokens=100_000,
+            pricing_mode="batch",
+        )
+        assert estimate.reference_image_output_cost_usd == pytest.approx(0.006)
+        assert estimate.text_input_cost_usd == pytest.approx(2.5)
+        assert estimate.cached_text_input_cost_usd == pytest.approx(0.0625)
+        assert estimate.image_input_cost_usd == pytest.approx(0.8)
+        assert estimate.cached_image_input_cost_usd == pytest.approx(0.1)
+        assert estimate.total_cost_usd == pytest.approx(3.4685)
+
+    def test_estimate_image_cost_partial_tokens_not_double_counted(self):
+        estimate = estimate_image_cost(
+            model="gpt-image-2",
+            size="1024x1024",
+            quality="low",
+            image_count=1,
+            image_output_tokens=400,
+            partial_image_output_tokens=100,
+        )
+        assert estimate.image_output_tokens == 300
+        assert estimate.partial_image_output_tokens == 100
+        assert estimate.image_output_cost_usd == pytest.approx((300 / 1_000_000) * 30.0)
+        assert estimate.partial_image_output_cost_usd == pytest.approx(
+            (100 / 1_000_000) * 30.0
+        )
+
+    def test_cost_for_image_usage_exact_costing(self):
+        usage = {
+            "input_tokens": 250_000,
+            "cached_input_tokens": 50_000,
+            "output_tokens": 20_000,
+            "input_tokens_details": {
+                "text_tokens": 120_000,
+                "cached_text_tokens": 20_000,
+                "image_tokens": 80_000,
+                "cached_image_tokens": 30_000,
+            },
+            "output_tokens_details": {
+                "image_tokens": 20_000,
+                "partial_image_tokens": 100,
+            },
+        }
+        estimate = cost_for_image_usage(
             model="gpt-image-1.5",
-            size="2048x2048",
+            usage=usage,
+            size="1024x1024",
+            quality="low",
             image_count=1,
         )
-        assert estimate.cost_per_image_usd == pytest.approx(0.040)
+        assert estimate.text_input_tokens == 120_000
+        assert estimate.cached_text_input_tokens == 20_000
+        assert estimate.image_input_tokens == 80_000
+        assert estimate.cached_image_input_tokens == 30_000
+        assert estimate.partial_image_output_tokens == 100
+        assert estimate.reference_image_output_cost_usd == pytest.approx(0.009)
+        assert estimate.total_cost_usd > estimate.reference_image_output_cost_usd
+
+    def test_cost_for_image_response_uses_artifact_count(self):
+        response = ImageResponse(
+            provider="openai",
+            model="gpt-image-2",
+            artifacts=[ImageArtifact(b64_data="a"), ImageArtifact(b64_data="b")],
+            usage=normalise_image_usage(
+                {
+                    "input_tokens": 1000,
+                    "output_tokens": 200,
+                    "input_tokens_details": {"text_tokens": 1000},
+                    "output_tokens_details": {"image_tokens": 200},
+                }
+            ),
+        )
+        estimate = cost_for_image_response(
+            response=response,
+            size="1024x1024",
+            quality="high",
+        )
+        assert estimate.image_count == 2
+        assert estimate.reference_image_output_cost_usd == pytest.approx(0.422)
+
+    def test_normalise_image_usage_from_object_and_mapping(self):
+        usage_obj = types.SimpleNamespace(
+            input_tokens=100,
+            output_tokens=30,
+            input_tokens_details=types.SimpleNamespace(
+                text_tokens=90, cached_text_tokens=10
+            ),
+            output_tokens_details={"image_tokens": 30},
+        )
+        usage = normalise_image_usage(usage_obj)
+        assert usage.text_input_tokens == 90
+        assert usage.cached_text_input_tokens == 10
+        assert usage.image_output_tokens == 30
+        assert usage.total_tokens == 130
+
+    def test_validate_image_size_for_gpt_image_2(self):
+        validate_image_size_for_model("gpt-image-2", "1024x1536")
+        validate_image_size_for_model("gpt-image-2", "auto")
+        with pytest.raises(ValueError, match="multiples of 16"):
+            validate_image_size_for_model("gpt-image-2", "1025x1536")
+        with pytest.raises(ValueError, match="maximum edge"):
+            validate_image_size_for_model("gpt-image-2", "4096x1024")
+
+    def test_get_image_pricing_batch_output_rates(self):
+        pricing = get_image_pricing("gpt-image-2")
+        assert pricing.batch_image_output_rate == pytest.approx(15.0)
+        assert pricing.batch_text_input_rate == pytest.approx(2.5)
 
     def test_get_image_pricing_unknown_model_raises(self):
         with pytest.raises(KeyError):
@@ -1241,11 +1489,18 @@ class TestImageCostEstimation:
 
         register_image_pricing(
             "custom-image-model",
-            ImagePricing(per_image_usd={"512x512": 0.01}),
+            {
+                "provider": "openai",
+                "canonical_model_id": "custom-image-model",
+                "text_input_rate": 1.0,
+                "image_output_rate": 10.0,
+                "reference_image_output_costs": {"low": {"512x512": 0.01}},
+            },
         )
         estimate = estimate_image_cost(
             model="custom-image-model",
             size="512x512",
+            quality="low",
             image_count=3,
         )
         assert estimate.total_cost_usd == pytest.approx(0.03)
@@ -1255,6 +1510,7 @@ class TestImageCostEstimation:
             estimate_image_cost(
                 model="gpt-image-1.5",
                 size="1024x1024",
+                quality="medium",
                 image_count=0,
             )
 
