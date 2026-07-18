@@ -254,8 +254,14 @@ The bundled pricing table is versioned and stored in `src/LLMUtilities/PRICING.j
 and long-context fields. Use `get_pricing(...)` to retrieve it. Use `register_pricing(...)` for in-memory overrides.
 Image pricing is also catalogue-backed via `src/LLMUtilities/IMAGE_PRICING.json`.
 `ImagePricing` and `ImagePricingCatalogue` expose standard and batch token rates plus
-reference output costs by quality and size. Offline image estimates require an explicit
-listed size and quality.
+reference output costs by quality and size.
+
+Use `cost_for_image_response(...)` or `cost_for_image_usage(...)` for exact token-based
+image costing when usage data is available. These paths bill returned image-output tokens
+directly and do not add reference output pricing.
+Use `estimate_image_cost(...)` for offline reference estimates. That path requires an
+explicit listed size and quality, and it is the only place where reference output pricing
+is applied.
 
 ## Structured output and JSON parsing
 

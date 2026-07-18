@@ -17,6 +17,7 @@ from LLMUtilities.types import (
     ImageArtifact,
     ImageRequest,
     ImageResponse,
+    ImageUsage,
     Message,
     TextContentPart,
     ImageContentPart,
@@ -1376,28 +1377,13 @@ class TestImageCostEstimation:
             cached_image_input_tokens=100_000,
             pricing_mode="batch",
         )
-        assert estimate.reference_image_output_cost_usd == pytest.approx(0.006)
+        assert estimate.cost_per_image_usd == pytest.approx(0.003)
+        assert estimate.reference_image_output_cost_usd == pytest.approx(0.003)
         assert estimate.text_input_cost_usd == pytest.approx(2.5)
         assert estimate.cached_text_input_cost_usd == pytest.approx(0.0625)
         assert estimate.image_input_cost_usd == pytest.approx(0.8)
         assert estimate.cached_image_input_cost_usd == pytest.approx(0.1)
-        assert estimate.total_cost_usd == pytest.approx(3.4685)
-
-    def test_estimate_image_cost_partial_tokens_not_double_counted(self):
-        estimate = estimate_image_cost(
-            model="gpt-image-2",
-            size="1024x1024",
-            quality="low",
-            image_count=1,
-            image_output_tokens=400,
-            partial_image_output_tokens=100,
-        )
-        assert estimate.image_output_tokens == 300
-        assert estimate.partial_image_output_tokens == 100
-        assert estimate.image_output_cost_usd == pytest.approx((300 / 1_000_000) * 30.0)
-        assert estimate.partial_image_output_cost_usd == pytest.approx(
-            (100 / 1_000_000) * 30.0
-        )
+        assert estimate.total_cost_usd == pytest.approx(3.4655)
 
     def test_cost_for_image_usage_exact_costing(self):
         usage = {
@@ -1426,9 +1412,32 @@ class TestImageCostEstimation:
         assert estimate.cached_text_input_tokens == 20_000
         assert estimate.image_input_tokens == 80_000
         assert estimate.cached_image_input_tokens == 30_000
+        assert estimate.image_output_tokens == 19_900
         assert estimate.partial_image_output_tokens == 100
-        assert estimate.reference_image_output_cost_usd == pytest.approx(0.009)
-        assert estimate.total_cost_usd > estimate.reference_image_output_cost_usd
+        assert estimate.reference_image_output_cost_usd == 0.0
+        assert estimate.total_cost_usd == pytest.approx(estimate.token_based_cost_usd)
+
+    def test_cost_for_image_usage_missing_rate_raises_for_positive_tokens(self):
+        from LLMUtilities.costs import register_image_pricing
+
+        register_image_pricing(
+            "no-output-rate-image-model",
+            {
+                "provider": "openai",
+                "canonical_model_id": "no-output-rate-image-model",
+                "text_input_rate": 1.0,
+                "image_input_rate": 2.0,
+                "reference_image_output_costs": {"low": {"1024x1024": 0.01}},
+            },
+        )
+
+        with pytest.raises(ValueError, match="No pricing rate is available"):
+            cost_for_image_usage(
+                model="no-output-rate-image-model",
+                usage={"output_tokens": 10},
+                size="1024x1024",
+                quality="low",
+            )
 
     def test_cost_for_image_response_uses_artifact_count(self):
         response = ImageResponse(
@@ -1450,7 +1459,44 @@ class TestImageCostEstimation:
             quality="high",
         )
         assert estimate.image_count == 2
-        assert estimate.reference_image_output_cost_usd == pytest.approx(0.422)
+        assert estimate.image_output_tokens == 200
+        assert estimate.reference_image_output_cost_usd == 0.0
+        assert estimate.total_cost_usd == pytest.approx(estimate.token_based_cost_usd)
+
+    def test_cost_for_image_response_falls_back_from_output_tokens(self):
+        response = ImageResponse(
+            provider="openai",
+            model="gpt-image-2",
+            artifacts=[ImageArtifact(b64_data="a")],
+            usage=ImageUsage(input_tokens=1000, output_tokens=200),
+        )
+        estimate = cost_for_image_response(
+            response=response,
+            size="1024x1024",
+            quality="high",
+        )
+        assert estimate.reference_image_output_cost_usd == 0.0
+        assert estimate.image_output_tokens == 200
+        assert estimate.total_cost_usd == pytest.approx(estimate.token_based_cost_usd)
+
+    def test_cost_for_image_response_uses_reference_only_when_output_usage_missing(
+        self,
+    ):
+        response = ImageResponse(
+            provider="openai",
+            model="gpt-image-2",
+            artifacts=[ImageArtifact(b64_data="a")],
+            usage=ImageUsage(input_tokens=1000),
+        )
+        estimate = cost_for_image_response(
+            response=response,
+            size="1024x1024",
+            quality="high",
+        )
+        assert estimate.reference_image_output_cost_usd == pytest.approx(0.211)
+        assert estimate.total_cost_usd == pytest.approx(
+            estimate.reference_image_output_cost_usd + estimate.token_based_cost_usd
+        )
 
     def test_normalise_image_usage_from_object_and_mapping(self):
         usage_obj = types.SimpleNamespace(

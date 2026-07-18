@@ -649,6 +649,16 @@ def _rate_cost(tokens: int, rate: Optional[float]) -> float:
     return (tokens / 1_000_000) * rate
 
 
+def _strict_rate_cost(tokens: int, rate: Optional[float], *, label: str) -> float:
+    if tokens <= 0:
+        return 0.0
+    if rate is None:
+        raise ValueError(
+            f"No pricing rate is available for {label} when tokens are present."
+        )
+    return (tokens / 1_000_000) * rate
+
+
 def _resolve_partial_image_output_tokens(
     pricing: ImagePricing,
     *,
@@ -699,6 +709,142 @@ def _reference_per_image_cost(
     return quality_table[size]
 
 
+def _reference_image_output_cost(
+    pricing: ImagePricing,
+    *,
+    size: str,
+    quality: str,
+    image_count: int,
+    pricing_mode: Literal["standard", "batch"],
+) -> float:
+    reference_per_image = _reference_per_image_cost(
+        pricing,
+        size=size,
+        quality=quality,
+    )
+
+    if pricing_mode == "batch":
+        if pricing.batch_image_output_rate is None:
+            raise ValueError(
+                f"No batch image output rate is available for model {pricing.canonical_model_id!r}."
+            )
+        if pricing.image_output_rate is None or pricing.image_output_rate <= 0:
+            raise ValueError(
+                f"No standard image output rate is available for model {pricing.canonical_model_id!r}."
+            )
+        reference_per_image *= (
+            pricing.batch_image_output_rate / pricing.image_output_rate
+        )
+
+    return reference_per_image * image_count
+
+
+def _calculate_exact_image_cost(
+    *,
+    model: str,
+    pricing: ImagePricing,
+    size: Optional[str],
+    quality: Optional[str],
+    image_count: int,
+    text_input_tokens: int,
+    cached_text_input_tokens: int,
+    text_output_tokens: int,
+    image_input_tokens: int,
+    cached_image_input_tokens: int,
+    image_output_tokens: int,
+    partial_image_output_tokens: Optional[int],
+    partial_image_count: Optional[int],
+    pricing_mode: Literal["standard", "batch"],
+) -> ImageCostEstimate:
+    (
+        text_input_rate,
+        text_output_rate,
+        text_cached_read_rate,
+        image_input_rate,
+        image_output_rate,
+        image_cached_read_rate,
+    ) = _select_image_pricing_rates(pricing, pricing_mode=pricing_mode)
+
+    partial_tokens = _resolve_partial_image_output_tokens(
+        pricing,
+        partial_image_output_tokens=partial_image_output_tokens,
+        partial_image_count=partial_image_count,
+    )
+    billable_image_output_tokens = max(image_output_tokens - partial_tokens, 0)
+
+    text_input_cost_usd = _strict_rate_cost(
+        text_input_tokens,
+        text_input_rate,
+        label=f"text input pricing for model {pricing.canonical_model_id!r}",
+    )
+    cached_text_input_cost_usd = _strict_rate_cost(
+        cached_text_input_tokens,
+        text_cached_read_rate,
+        label=f"cached text input pricing for model {pricing.canonical_model_id!r}",
+    )
+    text_output_cost_usd = _strict_rate_cost(
+        text_output_tokens,
+        text_output_rate,
+        label=f"text output pricing for model {pricing.canonical_model_id!r}",
+    )
+    image_input_cost_usd = _strict_rate_cost(
+        image_input_tokens,
+        image_input_rate,
+        label=f"image input pricing for model {pricing.canonical_model_id!r}",
+    )
+    cached_image_input_cost_usd = _strict_rate_cost(
+        cached_image_input_tokens,
+        image_cached_read_rate,
+        label=f"cached image input pricing for model {pricing.canonical_model_id!r}",
+    )
+    image_output_cost_usd = _strict_rate_cost(
+        billable_image_output_tokens,
+        image_output_rate,
+        label=f"image output pricing for model {pricing.canonical_model_id!r}",
+    )
+    partial_image_output_cost_usd = _strict_rate_cost(
+        partial_tokens,
+        image_output_rate,
+        label=f"partial image output pricing for model {pricing.canonical_model_id!r}",
+    )
+
+    total_cost_usd = (
+        text_input_cost_usd
+        + cached_text_input_cost_usd
+        + text_output_cost_usd
+        + image_input_cost_usd
+        + cached_image_input_cost_usd
+        + image_output_cost_usd
+        + partial_image_output_cost_usd
+    )
+
+    return ImageCostEstimate(
+        model=model,
+        size=size,
+        quality=quality,
+        image_count=image_count,
+        pricing_mode=pricing_mode,
+        cost_per_image_usd=0.0,
+        text_input_tokens=text_input_tokens,
+        cached_text_input_tokens=cached_text_input_tokens,
+        text_output_tokens=text_output_tokens,
+        image_input_tokens=image_input_tokens,
+        cached_image_input_tokens=cached_image_input_tokens,
+        image_output_tokens=billable_image_output_tokens,
+        partial_image_output_tokens=partial_tokens,
+        text_input_cost_usd=text_input_cost_usd,
+        cached_text_input_cost_usd=cached_text_input_cost_usd,
+        text_output_cost_usd=text_output_cost_usd,
+        image_input_cost_usd=image_input_cost_usd,
+        cached_image_input_cost_usd=cached_image_input_cost_usd,
+        image_output_cost_usd=image_output_cost_usd,
+        partial_image_output_cost_usd=partial_image_output_cost_usd,
+        token_based_cost_usd=total_cost_usd,
+        reference_image_output_cost_usd=0.0,
+        total_cost_usd=total_cost_usd,
+    )
+
+
 def estimate_image_cost(
     *,
     model: str,
@@ -728,65 +874,47 @@ def estimate_image_cost(
         raise ValueError("image_input_tokens must be >= 0")
     if cached_image_input_tokens < 0:
         raise ValueError("cached_image_input_tokens must be >= 0")
-    if image_output_tokens < 0:
-        raise ValueError("image_output_tokens must be >= 0")
-    if partial_image_output_tokens is not None and partial_image_output_tokens < 0:
-        raise ValueError("partial_image_output_tokens must be >= 0")
-    if partial_image_count is not None and partial_image_count < 0:
-        raise ValueError("partial_image_count must be >= 0")
 
     pricing = get_image_pricing(model)
     validate_image_size_for_model(model, size)
 
-    partial_tokens = _resolve_partial_image_output_tokens(
-        pricing,
-        partial_image_output_tokens=partial_image_output_tokens,
-        partial_image_count=partial_image_count,
-    )
-    billable_image_output_tokens = image_output_tokens
-    if partial_tokens > 0 and billable_image_output_tokens >= partial_tokens:
-        billable_image_output_tokens -= partial_tokens
-
     (
         text_input_rate,
-        text_output_rate,
+        _text_output_rate,
         text_cached_read_rate,
         image_input_rate,
-        image_output_rate,
+        _image_output_rate,
         image_cached_read_rate,
     ) = _select_image_pricing_rates(pricing, pricing_mode=pricing_mode)
 
-    text_input_cost_usd = _rate_cost(text_input_tokens, text_input_rate)
-    cached_text_input_cost_usd = _rate_cost(
+    text_input_cost_usd = _strict_rate_cost(
+        text_input_tokens,
+        text_input_rate,
+        label=f"text input pricing for model {pricing.canonical_model_id!r}",
+    )
+    cached_text_input_cost_usd = _strict_rate_cost(
         cached_text_input_tokens,
         text_cached_read_rate,
+        label=f"cached text input pricing for model {pricing.canonical_model_id!r}",
     )
-    text_output_cost_usd = _rate_cost(text_output_tokens, text_output_rate)
-    image_input_cost_usd = _rate_cost(image_input_tokens, image_input_rate)
-    cached_image_input_cost_usd = _rate_cost(
+    image_input_cost_usd = _strict_rate_cost(
+        image_input_tokens,
+        image_input_rate,
+        label=f"image input pricing for model {pricing.canonical_model_id!r}",
+    )
+    cached_image_input_cost_usd = _strict_rate_cost(
         cached_image_input_tokens,
         image_cached_read_rate,
-    )
-    image_output_cost_usd = _rate_cost(billable_image_output_tokens, image_output_rate)
-    partial_image_output_cost_usd = _rate_cost(partial_tokens, image_output_rate)
-
-    token_based_cost_usd = (
-        text_input_cost_usd
-        + cached_text_input_cost_usd
-        + text_output_cost_usd
-        + image_input_cost_usd
-        + cached_image_input_cost_usd
-        + image_output_cost_usd
-        + partial_image_output_cost_usd
+        label=f"cached image input pricing for model {pricing.canonical_model_id!r}",
     )
 
-    reference_per_image = _reference_per_image_cost(
+    reference_total = _reference_image_output_cost(
         pricing,
         size=size,
         quality=quality,
+        image_count=image_count,
+        pricing_mode=pricing_mode,
     )
-    reference_total = reference_per_image * image_count
-    total_cost_usd = reference_total + token_based_cost_usd
 
     return ImageCostEstimate(
         model=model,
@@ -794,24 +922,35 @@ def estimate_image_cost(
         quality=quality,
         image_count=image_count,
         pricing_mode=pricing_mode,
-        cost_per_image_usd=reference_per_image,
+        cost_per_image_usd=(reference_total / image_count if image_count else 0.0),
         text_input_tokens=text_input_tokens,
         cached_text_input_tokens=cached_text_input_tokens,
         text_output_tokens=text_output_tokens,
         image_input_tokens=image_input_tokens,
         cached_image_input_tokens=cached_image_input_tokens,
-        image_output_tokens=billable_image_output_tokens,
-        partial_image_output_tokens=partial_tokens,
+        image_output_tokens=0,
+        partial_image_output_tokens=0,
         text_input_cost_usd=text_input_cost_usd,
         cached_text_input_cost_usd=cached_text_input_cost_usd,
-        text_output_cost_usd=text_output_cost_usd,
+        text_output_cost_usd=0.0,
         image_input_cost_usd=image_input_cost_usd,
         cached_image_input_cost_usd=cached_image_input_cost_usd,
-        image_output_cost_usd=image_output_cost_usd,
-        partial_image_output_cost_usd=partial_image_output_cost_usd,
-        token_based_cost_usd=token_based_cost_usd,
+        image_output_cost_usd=0.0,
+        partial_image_output_cost_usd=0.0,
+        token_based_cost_usd=(
+            text_input_cost_usd
+            + cached_text_input_cost_usd
+            + image_input_cost_usd
+            + cached_image_input_cost_usd
+        ),
         reference_image_output_cost_usd=reference_total,
-        total_cost_usd=total_cost_usd,
+        total_cost_usd=(
+            reference_total
+            + text_input_cost_usd
+            + cached_text_input_cost_usd
+            + image_input_cost_usd
+            + cached_image_input_cost_usd
+        ),
     )
 
 
@@ -987,13 +1126,73 @@ def cost_for_image_usage(
     pricing_mode: Literal["standard", "batch"] = "standard",
 ) -> ImageCostEstimate:
     normalised_usage = normalise_image_usage(usage)
-    if size is None or quality is None:
-        raise ValueError(
-            "size and quality are required for image output reference estimates."
+
+    pricing = get_image_pricing(model)
+    usable_image_output_tokens = (
+        normalised_usage.image_output_tokens
+        if normalised_usage.image_output_tokens is not None
+        else normalised_usage.output_tokens
+    )
+
+    if usable_image_output_tokens is None:
+        if size is None or quality is None:
+            raise ValueError(
+                "size and quality are required when image-output usage is unavailable."
+            )
+        input_only_cost_usd = _calculate_exact_image_cost(
+            model=model,
+            pricing=pricing,
+            size=size,
+            quality=quality,
+            image_count=image_count,
+            text_input_tokens=normalised_usage.text_input_tokens or 0,
+            cached_text_input_tokens=normalised_usage.cached_text_input_tokens or 0,
+            text_output_tokens=normalised_usage.text_output_tokens or 0,
+            image_input_tokens=normalised_usage.image_input_tokens or 0,
+            cached_image_input_tokens=normalised_usage.cached_image_input_tokens or 0,
+            image_output_tokens=0,
+            partial_image_output_tokens=None,
+            partial_image_count=None,
+            pricing_mode=pricing_mode,
+        )
+        reference_total = _reference_image_output_cost(
+            pricing,
+            size=size,
+            quality=quality,
+            image_count=image_count,
+            pricing_mode=pricing_mode,
+        )
+        total_cost_usd = input_only_cost_usd.total_cost_usd + reference_total
+        return ImageCostEstimate(
+            model=model,
+            size=size,
+            quality=quality,
+            image_count=image_count,
+            pricing_mode=pricing_mode,
+            cost_per_image_usd=(reference_total / image_count if image_count else 0.0),
+            text_input_tokens=input_only_cost_usd.text_input_tokens,
+            cached_text_input_tokens=input_only_cost_usd.cached_text_input_tokens,
+            text_output_tokens=input_only_cost_usd.text_output_tokens,
+            image_input_tokens=input_only_cost_usd.image_input_tokens,
+            cached_image_input_tokens=input_only_cost_usd.cached_image_input_tokens,
+            image_output_tokens=0,
+            partial_image_output_tokens=0,
+            text_input_cost_usd=input_only_cost_usd.text_input_cost_usd,
+            cached_text_input_cost_usd=input_only_cost_usd.cached_text_input_cost_usd,
+            text_output_cost_usd=input_only_cost_usd.text_output_cost_usd,
+            image_input_cost_usd=input_only_cost_usd.image_input_cost_usd,
+            cached_image_input_cost_usd=input_only_cost_usd.cached_image_input_cost_usd,
+            image_output_cost_usd=0.0,
+            partial_image_output_cost_usd=0.0,
+            token_based_cost_usd=input_only_cost_usd.token_based_cost_usd,
+            reference_image_output_cost_usd=reference_total,
+            total_cost_usd=total_cost_usd,
         )
 
-    return estimate_image_cost(
+    exact_image_output_tokens = usable_image_output_tokens
+    exact_estimate = _calculate_exact_image_cost(
         model=model,
+        pricing=pricing,
         size=size,
         quality=quality,
         image_count=image_count,
@@ -1002,18 +1201,20 @@ def cost_for_image_usage(
         text_output_tokens=normalised_usage.text_output_tokens or 0,
         image_input_tokens=normalised_usage.image_input_tokens or 0,
         cached_image_input_tokens=normalised_usage.cached_image_input_tokens or 0,
-        image_output_tokens=normalised_usage.image_output_tokens or 0,
+        image_output_tokens=exact_image_output_tokens or 0,
         partial_image_output_tokens=normalised_usage.partial_image_output_tokens,
         partial_image_count=normalised_usage.partial_image_count,
         pricing_mode=pricing_mode,
     )
 
+    return exact_estimate
+
 
 def cost_for_image_response(
     *,
     response: ImageResponse,
-    size: str,
-    quality: str,
+    size: Optional[str] = None,
+    quality: Optional[str] = None,
     image_count: Optional[int] = None,
     pricing_mode: Literal["standard", "batch"] = "standard",
 ) -> ImageCostEstimate:
