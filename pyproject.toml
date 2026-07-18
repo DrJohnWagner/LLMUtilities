@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools==75.6.0", "wheel==0.45.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "LLMUtilities"
+version = "0.0.0"
+description = "Provider-normalised helpers for LLM chat, embeddings, image generation, token counting, cost estimation, structured parsing, tracing and output comparison."
+readme = "README.md"
+requires-python = "==3.10.13"
+license = { file = "LICENSE" }
+authors = [{ name = "John Wagner" }]
+dependencies = [
+  "pydantic==2.11.7",
+  "openai==1.95.1",
+  "anthropic==0.60.0",
+  "google-genai==1.34.0",
+  "tiktoken==0.8.0",
+  "python-dotenv==1.1.1",
+]
+classifiers = [
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.10.13",
+  "Operating System :: OS Independent",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest==8.3.4",
+  "pytest-cov==6.0.0",
+]
+dev = [
+  "ruff==0.9.4",
+  "mypy==1.14.1",
+  "build==1.2.2",
+  "twine==6.1.0",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+mypy_path = "src"

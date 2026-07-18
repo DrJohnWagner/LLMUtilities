@@ -256,19 +256,6 @@ log_error("logs/traces.jsonl", RuntimeError("example"), provider="openai")
 
 Writes JSONL records with `event_type`, `timestamp`, `provider`, `model`, and `payload`.
 
-## Testing with fakes
-
-```python
-from LLMUtilities.tests.fakes import FakeChatModel
-from LLMUtilities.chat import chat
-
-fake = FakeChatModel(response_text="mock")
-res = chat(provider=fake, user="anything")
-
-assert res.text == "mock"
-assert len(fake.calls) == 1
-```
-
 ## Exceptions
 
 All package exceptions inherit from `LLMUtilitiesError`:
