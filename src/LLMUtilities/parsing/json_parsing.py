@@ -4,7 +4,7 @@ import json
 import re
 from typing import Any, Optional, Type
 
-from pydantic import BaseModel, TypeAdapter, ValidationError
+from pydantic import BaseModel, TypeAdapter
 
 # from LLMUtilities.parsing.json_parsing import parse_json
 
@@ -107,15 +107,9 @@ def parse_json_as(
     """
     data = parse_json(text, strict=strict)
 
-    try:
-        if isinstance(model, type) and issubclass(model, BaseModel):
-            return model.model_validate(data)
-        return TypeAdapter(model).validate_python(data)
-    except ValidationError as exc:
-        name = getattr(model, "__name__", repr(model))
-        raise ValueError(
-            f"JSON parsed but failed validation for {name}:\n{data}"
-        ) from exc
+    if isinstance(model, type) and issubclass(model, BaseModel):
+        return model.model_validate(data)
+    return TypeAdapter(model).validate_python(data)
 
 
 def repair_json(text: str) -> str:

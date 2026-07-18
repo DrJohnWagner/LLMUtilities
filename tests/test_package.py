@@ -1,11 +1,14 @@
 """Test suite for LLMUtilities."""
 from __future__ import annotations
 
+import json
 import sys
 import types
+from dataclasses import replace
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 from LLMUtilities.types import (
     ChatRequest,
@@ -776,6 +779,25 @@ class TestImageTypeValidation:
         with pytest.raises(Exception):
             ImageResponse(provider="openai", model="gpt-image-1.5", artifacts=[])
 
+    def test_image_artifact_allows_missing_mime_type(self):
+        artifact = ImageArtifact(b64_data="abc")
+        assert artifact.mime_type is None
+
+    def test_image_response_allows_missing_usage(self):
+        response = ImageResponse(
+            provider="openai",
+            model="gpt-image-1.5",
+            artifacts=[ImageArtifact(b64_data="abc")],
+            usage=None,
+        )
+        assert response.usage is None
+
+
+class TestChatResponseValidation:
+    def test_chat_response_allows_missing_usage(self):
+        response = ChatResponse(text="ok", provider="fake", model="fake", usage=None)
+        assert response.usage is None
+
 
 class TestOpenAIImageProvider:
     def test_openai_image_missing_sdk_raises_package_error(self):
@@ -1145,6 +1167,15 @@ class TestJsonParsing:
         obj = parse_json_as('{"x": 3, "y": 7}', Point)
         assert obj.x == 3 and obj.y == 7
 
+    def test_parse_json_as_preserves_validation_error(self):
+        from pydantic import BaseModel
+
+        class Point(BaseModel):
+            x: int
+
+        with pytest.raises(ValidationError):
+            parse_json_as('{"x": "not-an-int"}', Point)
+
     def test_extract_json_from_prose(self):
         text = 'Here you go: {"answer": 42} Done.'
         assert '"answer"' in extract_json_string(text)
@@ -1255,6 +1286,94 @@ class TestTokensErrorSurface:
         from LLMUtilities.tokens import count_text_tokens
         with pytest.raises(ConfigurationError, match="Unsupported"):
             count_text_tokens("hello", provider="no-such-provider")
+
+    def test_openai_message_tokens_use_text_parts_from_multimodal_content(self):
+        import LLMUtilities.tokens as tok
+
+        class _Encoding:
+            @staticmethod
+            def encode(text):
+                return list(text)
+
+        with patch.object(tok, "tiktoken", object()):
+            with patch.object(tok, "_get_openai_encoding", return_value=_Encoding()):
+                message = Message(
+                    role="user",
+                    content=[
+                        TextContentPart(type="text", text="hello"),
+                        ImageContentPart(
+                            type="image", source={"type": "url", "url": "x"}
+                        ),
+                    ],
+                )
+                assert tok.count_message_tokens([message], provider="openai") == 9
+
+    def test_anthropic_count_tokens_honours_explicit_model(self):
+        import LLMUtilities.tokens as tok
+
+        captured: dict[str, object] = {}
+
+        class _Messages:
+            @staticmethod
+            def count_tokens(**kwargs):
+                captured.update(kwargs)
+                return types.SimpleNamespace(input_tokens=11)
+
+        class _AnthropicClient:
+            def __init__(self, api_key):
+                self.messages = _Messages()
+
+        with patch.object(tok, "Anthropic", _AnthropicClient):
+            with patch.object(
+                tok,
+                "settings",
+                replace(tok.settings, anthropic_api_key="fake-key"),
+            ):
+                count = tok.count_text_tokens(
+                    "hello",
+                    provider="anthropic",
+                    model="custom-model",
+                )
+
+        assert count == 11
+        assert captured["model"] == "custom-model"
+
+
+class TestTracing:
+    def test_log_chat_request_serialises_multimodal_messages(self, tmp_path):
+        from LLMUtilities.tracing.tracing import log_chat_request
+
+        request = ChatRequest(
+            messages=[
+                Message(
+                    role="user",
+                    content=[
+                        TextContentPart(type="text", text="hello"),
+                        ImageContentPart(
+                            type="image",
+                            source={"type": "url", "url": "https://example.com/a.png"},
+                        ),
+                    ],
+                )
+            ]
+        )
+
+        path = tmp_path / "traces.jsonl"
+        log_chat_request(path, request, provider="openai", resolved_model="gpt-5-mini")
+
+        record = json.loads(path.read_text(encoding="utf-8").strip())
+        assert record["payload"]["messages"][0]["content"][0]["text"] == "hello"
+        assert record["payload"]["messages"][0]["content"][1]["type"] == "image"
+
+    def test_log_chat_response_allows_missing_usage(self, tmp_path):
+        from LLMUtilities.tracing.tracing import log_chat_response
+
+        response = ChatResponse(text="ok", provider="fake", model="model", usage=None)
+        path = tmp_path / "traces.jsonl"
+        log_chat_response(path, response)
+
+        record = json.loads(path.read_text(encoding="utf-8").strip())
+        assert record["payload"]["usage"] is None
 
 
 # ---------------------------------------------------------------------------

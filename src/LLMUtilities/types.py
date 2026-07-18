@@ -77,7 +77,7 @@ class ChatResponse(BaseModel):
     text: str
     provider: str
     model: str
-    usage: ChatUsage = Field(default_factory=ChatUsage)
+    usage: Optional[ChatUsage] = None
     stop_reason: Optional[str] = None
     raw: Any = None
 
@@ -99,7 +99,7 @@ class ImageRequest(BaseModel):
 class ImageArtifact(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    mime_type: str
+    mime_type: Optional[str] = None
     b64_data: Optional[str] = None
     url: Optional[str] = None
     revised_prompt: Optional[str] = None
@@ -119,5 +119,5 @@ class ImageResponse(BaseModel):
     provider: str
     model: str
     artifacts: list[ImageArtifact] = Field(min_length=1)
-    usage: ImageUsage = Field(default_factory=ImageUsage)
+    usage: Optional[ImageUsage] = None
     raw: Any = None

@@ -6,6 +6,7 @@ from typing import Optional, Sequence
 from .config import settings
 from .exceptions import ConfigurationError, MissingDependencyError
 from .types import Message
+from .utils import content_to_text
 
 try:
     import tiktoken
@@ -42,7 +43,7 @@ def count_text_tokens(
         return _count_openai_text_tokens(text, model=model)
 
     if provider_name == "anthropic":
-        return _count_anthropic_text_tokens(text)
+        return _count_anthropic_text_tokens(text, model=model)
 
     if provider_name == "google":
         return _count_google_text_tokens(text, model=model)
@@ -68,7 +69,7 @@ def count_message_tokens(
         return _count_openai_message_tokens(messages, model=model)
 
     if provider_name == "anthropic":
-        return _count_anthropic_message_tokens(messages)
+        return _count_anthropic_message_tokens(messages, model=model)
 
     if provider_name == "google":
         return _count_google_message_tokens(messages, model=model)
@@ -172,10 +173,19 @@ def _count_openai_message_tokens(
 
     encoding = _get_openai_encoding(model)
 
+    system_parts: list[str] = []
     total = 0
     for message in messages:
+        content_text = content_to_text(message.content)
+        if message.role == "system":
+            system_parts.append(content_text)
+            continue
+
         total += len(encoding.encode(message.role))
-        total += len(encoding.encode(message.content))
+        total += len(encoding.encode(content_text))
+
+    if system_parts:
+        total += len(encoding.encode("\n\n".join(system_parts)))
 
     return total
 
@@ -193,7 +203,8 @@ def _get_openai_encoding(model: Optional[str] = None):
 # Anthropic
 # -------------------------
 
-def _count_anthropic_text_tokens(text: str) -> int:
+
+def _count_anthropic_text_tokens(text: str, model: Optional[str] = None) -> int:
     if Anthropic is None:
         raise MissingDependencyError(
             "The 'anthropic' package is required for Anthropic token counting. "
@@ -207,7 +218,7 @@ def _count_anthropic_text_tokens(text: str) -> int:
     client = Anthropic(api_key=api_key)
 
     response = client.messages.count_tokens(
-        model=settings.anthropic.chat_model or "claude-sonnet-4-6",
+        model=model or settings.anthropic.chat_model or "claude-sonnet-4-6",
         messages=[
             {
                 "role": "user",
@@ -218,7 +229,10 @@ def _count_anthropic_text_tokens(text: str) -> int:
     return response.input_tokens
 
 
-def _count_anthropic_message_tokens(messages: Sequence[Message]) -> int:
+def _count_anthropic_message_tokens(
+    messages: Sequence[Message],
+    model: Optional[str] = None,
+) -> int:
     if Anthropic is None:
         raise MissingDependencyError(
             "The 'anthropic' package is required for Anthropic token counting. "
@@ -234,13 +248,13 @@ def _count_anthropic_message_tokens(messages: Sequence[Message]) -> int:
 
     for message in messages:
         if message.role == "system":
-            system_parts.append(message.content)
+            system_parts.append(content_to_text(message.content))
             continue
 
         anthropic_messages.append(
             {
                 "role": message.role,
-                "content": message.content,
+                "content": content_to_text(message.content),
             }
         )
 
@@ -255,7 +269,7 @@ def _count_anthropic_message_tokens(messages: Sequence[Message]) -> int:
     client = Anthropic(api_key=api_key)
 
     response = client.messages.count_tokens(
-        model=settings.anthropic.chat_model or "claude-sonnet-4-6",
+        model=model or settings.anthropic.chat_model or "claude-sonnet-4-6",
         system="\n\n".join(system_parts) if system_parts else None,
         messages=anthropic_messages,
     )
@@ -305,30 +319,34 @@ def _count_google_message_tokens(
 
     for message in messages:
         if message.role == "system":
-            system_parts.append(message.content)
+            system_parts.append(content_to_text(message.content))
             continue
 
         role = "user" if message.role == "user" else "model"
         contents.append(
             {
                 "role": role,
-                "parts": [{"text": message.content}],
+                "parts": [{"text": content_to_text(message.content)}],
             }
-        )
-
-    if system_parts:
-        contents.insert(
-            0,
-            {
-                "role": "user",
-                "parts": [{"text": "\n\n".join(system_parts)}],
-            },
         )
 
     client = genai.Client(api_key=api_key)
 
-    response = client.models.count_tokens(
-        model=model or settings.google.chat_model or "gemini-2.5-flash",
-        contents=contents,
-    )
-    return response.total_tokens
+    resolved_model = model or settings.google.chat_model or "gemini-2.5-flash"
+    total_tokens = 0
+
+    if contents:
+        response = client.models.count_tokens(
+            model=resolved_model,
+            contents=contents,
+        )
+        total_tokens += response.total_tokens
+
+    if system_parts:
+        response = client.models.count_tokens(
+            model=resolved_model,
+            contents="\n\n".join(system_parts),
+        )
+        total_tokens += response.total_tokens
+
+    return total_tokens

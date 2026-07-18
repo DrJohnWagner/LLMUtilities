@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Optional, Sequence
 
 from ..types import ChatRequest, ChatResponse, Message
+from ..utils import serialise_content, truncate_text
 
 # from LLMUtilities.logging.tracing import log_chat_request, log_chat_response
 # from LLMUtilities.types import ChatRequest, Message
@@ -78,24 +79,14 @@ def append_trace_record(path: str | Path, record: TraceRecord) -> None:
         f.write("\n")
 
 
-def truncate_text(text: str, max_chars: Optional[int] = None) -> str:
-    if max_chars is None or max_chars <= 0:
-        return text
-
-    if len(text) <= max_chars:
-        return text
-
-    return text[:max_chars] + "...<truncated>"
-
-
 def serialise_message(
     message: Message,
     *,
     max_chars: Optional[int] = None,
-) -> dict[str, str]:
+) -> dict[str, Any]:
     return {
         "role": message.role,
-        "content": truncate_text(message.content, max_chars=max_chars),
+        "content": serialise_content(message.content, max_chars=max_chars),
     }
 
 
@@ -103,7 +94,7 @@ def serialise_messages(
     messages: Sequence[Message],
     *,
     max_chars: Optional[int] = None,
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     return [
         serialise_message(message, max_chars=max_chars)
         for message in messages
@@ -150,11 +141,7 @@ def log_chat_response(
 ) -> None:
     payload = {
         "text": truncate_text(response.text, max_chars=max_chars),
-        "usage": {
-            "input_tokens": response.usage.input_tokens,
-            "output_tokens": response.usage.output_tokens,
-            "total_tokens": response.usage.total_tokens,
-        },
+        "usage": _serialise_usage(response),
         "stop_reason": response.stop_reason,
     }
 
@@ -207,3 +194,17 @@ def _safe_raw_repr(raw: Any, *, max_chars: Optional[int] = None) -> str:
         text = "<unrepresentable raw object>"
 
     return truncate_text(text, max_chars=max_chars)
+
+
+def _serialise_usage(response: ChatResponse) -> dict[str, Any] | None:
+    if response.usage is None:
+        return None
+
+    return {
+        "input_tokens": response.usage.input_tokens,
+        "output_tokens": response.usage.output_tokens,
+        "total_tokens": response.usage.total_tokens,
+        "cached_input_tokens": response.usage.cached_input_tokens,
+        "cache_creation_input_tokens": response.usage.cache_creation_input_tokens,
+        "cache_read_input_tokens": response.usage.cache_read_input_tokens,
+    }

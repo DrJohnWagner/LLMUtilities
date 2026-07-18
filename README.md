@@ -66,7 +66,8 @@ response = chat(
 )
 
 print(response.text)
-print(response.usage.input_tokens, response.usage.output_tokens)
+if response.usage:
+    print(response.usage.input_tokens, response.usage.output_tokens)
 ```
 
 ## Provider support matrix
@@ -76,7 +77,7 @@ print(response.usage.input_tokens, response.usage.output_tokens)
 | Chat             | yes               | yes       | yes      |
 | Embeddings       | yes               | no        | yes      |
 | Image generation | yes               | no        | no       |
-| Token counting   | local`tiktoken` | API call  | API call |
+| Token counting   | local `tiktoken` | API call  | API call |
 
 Notes:
 
@@ -181,6 +182,7 @@ n4 = count_message_tokens(messages, provider="openai")
 ```
 
 For OpenAI, token counting requires `tiktoken`.
+For multimodal `Message.content` lists, token counting uses text parts and ignores image parts.
 
 ## Cost estimation
 
