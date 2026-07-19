@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pydantic import ValidationError
 
+from LLMUtilities.config import get_settings
 from LLMUtilities.types import (
     ChatRequest,
     ChatResponse,
@@ -885,7 +886,12 @@ class TestTracing:
         )
 
         path = tmp_path / "traces.jsonl"
-        log_chat_request(path, request, provider="openai", resolved_model="gpt-5-mini")
+        log_chat_request(
+            path,
+            request,
+            provider="openai",
+            resolved_model=get_settings().openai.chat_model,
+        )
 
         record = json.loads(path.read_text(encoding="utf-8").strip())
         assert record["payload"]["messages"][0]["content"][0]["text"] == "hello"

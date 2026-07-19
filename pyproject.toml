@@ -48,7 +48,14 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+
+# Exclude live, billable API tests from ordinary pytest runs.
+# To run live tests: pytest -o addopts="" -m live
+addopts = "-q -m 'not live'"
+
+markers = [
+    "live: tests that make real, billable external API calls",
+]
 
 [tool.ruff]
 line-length = 88

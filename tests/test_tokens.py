@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 import LLMUtilities.tokens as tokens
+from LLMUtilities.config import get_settings
 from LLMUtilities.exceptions import (
     ConfigurationError,
     MissingDependencyError,
@@ -18,7 +19,6 @@ from LLMUtilities.types import (
     Message,
     TextContentPart,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fake token-counting dependencies
@@ -111,11 +111,7 @@ def _install_fake_google(
     error: Exception | None = None,
 ) -> dict[str, Any]:
     captured: dict[str, Any] = {}
-    remaining_counts = list(
-        token_counts
-        if token_counts is not None
-        else [13]
-    )
+    remaining_counts = list(token_counts if token_counts is not None else [13])
 
     class _Models:
         @staticmethod
@@ -128,11 +124,7 @@ def _install_fake_google(
             if error is not None:
                 raise error
 
-            count = (
-                remaining_counts.pop(0)
-                if remaining_counts
-                else 0
-            )
+            count = remaining_counts.pop(0) if remaining_counts else 0
 
             return types.SimpleNamespace(
                 total_tokens=count,
@@ -688,9 +680,7 @@ class TestOpenAITokenCounting:
         )
 
         assert count == 5
-        assert captured["encoding_for_model_calls"] == [
-            "gpt-test"
-        ]
+        assert captured["encoding_for_model_calls"] == ["gpt-test"]
         assert captured["get_encoding_calls"] == []
 
     def test_missing_model_uses_cl100k_base(
@@ -703,9 +693,7 @@ class TestOpenAITokenCounting:
 
         assert count == 5
         assert captured["encoding_for_model_calls"] == []
-        assert captured["get_encoding_calls"] == [
-            "cl100k_base"
-        ]
+        assert captured["get_encoding_calls"] == ["cl100k_base"]
 
     def test_unknown_model_falls_back_to_cl100k_base(
         self,
@@ -722,12 +710,8 @@ class TestOpenAITokenCounting:
         )
 
         assert count == 5
-        assert captured["encoding_for_model_calls"] == [
-            "unknown-model"
-        ]
-        assert captured["get_encoding_calls"] == [
-            "cl100k_base"
-        ]
+        assert captured["encoding_for_model_calls"] == ["unknown-model"]
+        assert captured["get_encoding_calls"] == ["cl100k_base"]
 
     def test_message_count_includes_roles_and_content(
         self,
@@ -748,12 +732,7 @@ class TestOpenAITokenCounting:
             ]
         )
 
-        expected = (
-            len("user")
-            + len("hello")
-            + len("assistant")
-            + len("ok")
-        )
+        expected = len("user") + len("hello") + len("assistant") + len("ok")
 
         assert count == expected
 
@@ -780,11 +759,7 @@ class TestOpenAITokenCounting:
             ]
         )
 
-        expected = (
-            len("user")
-            + len("hello")
-            + len("First\n\nSecond")
-        )
+        expected = len("user") + len("hello") + len("First\n\nSecond")
 
         assert count == expected
 
@@ -974,8 +949,7 @@ class TestAnthropicTokenCounting:
         tokens._count_anthropic_text_tokens("hello")
 
         assert (
-            captured["count_tokens_calls"][0]["model"]
-            == "configured-anthropic-model"
+            captured["count_tokens_calls"][0]["model"] == "configured-anthropic-model"
         )
 
     def test_text_count_uses_builtin_model_fallback(
@@ -1000,7 +974,7 @@ class TestAnthropicTokenCounting:
 
         assert (
             captured["count_tokens_calls"][0]["model"]
-            == "claude-sonnet-4-6"
+            == get_settings().anthropic.chat_model
         )
 
     def test_message_count_separates_system_messages(
@@ -1046,10 +1020,7 @@ class TestAnthropicTokenCounting:
         assert captured["count_tokens_calls"] == [
             {
                 "model": "custom-model",
-                "system": (
-                    "First instruction.\n\n"
-                    "Second instruction."
-                ),
+                "system": ("First instruction.\n\n" "Second instruction."),
                 "messages": [
                     {
                         "role": "user",
@@ -1086,10 +1057,7 @@ class TestAnthropicTokenCounting:
             ]
         )
 
-        assert (
-            captured["count_tokens_calls"][0]["system"]
-            is None
-        )
+        assert captured["count_tokens_calls"][0]["system"] is None
 
     def test_system_only_request_inserts_empty_user_message(
         self,
@@ -1115,7 +1083,7 @@ class TestAnthropicTokenCounting:
         )
 
         assert captured["count_tokens_calls"][0] == {
-            "model": tokens.settings.anthropic.chat_model,
+            "model": get_settings().anthropic.chat_model,
             "system": "System instruction.",
             "messages": [
                 {
@@ -1317,10 +1285,7 @@ class TestGoogleTokenCounting:
 
         tokens._count_google_text_tokens("hello")
 
-        assert (
-            captured["count_tokens_calls"][0]["model"]
-            == "configured-google-model"
-        )
+        assert captured["count_tokens_calls"][0]["model"] == "configured-google-model"
 
     def test_text_count_uses_builtin_model_fallback(
         self,
@@ -1344,7 +1309,7 @@ class TestGoogleTokenCounting:
 
         assert (
             captured["count_tokens_calls"][0]["model"]
-            == "gemini-2.5-flash"
+            == get_settings().google.chat_model
         )
 
     def test_message_count_maps_roles_and_counts_system_separately(
@@ -1414,10 +1379,7 @@ class TestGoogleTokenCounting:
             },
             {
                 "model": "custom-model",
-                "contents": (
-                    "First instruction.\n\n"
-                    "Second instruction."
-                ),
+                "contents": ("First instruction.\n\n" "Second instruction."),
             },
         ]
 
@@ -1483,7 +1445,7 @@ class TestGoogleTokenCounting:
         assert count == 6
         assert captured["count_tokens_calls"] == [
             {
-                "model": tokens.settings.google.chat_model,
+                "model": get_settings().google.chat_model,
                 "contents": "System instruction.",
             }
         ]

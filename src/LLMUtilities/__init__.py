@@ -5,7 +5,7 @@ Public entry points::
 
     from LLMUtilities.chat import chat, chat_text, chat_usage
     from LLMUtilities.types import ChatRequest, ChatResponse, Message, ChatUsage
-    from LLMUtilities.costs import estimate_cost
+    from LLMUtilities.costs import cost_for_response
     from LLMUtilities.embeddings import embed_texts, cosine_similarity
     from LLMUtilities.parsing.structured_output import structured_output
     from LLMUtilities.compare import compare_outputs
@@ -19,42 +19,44 @@ from .types import (
     ImageRequest,
     ImageResponse,
     ImageUsage,
+    ImageContentPart,
     Message,
     TextContentPart,
-    ImageContentPart,
 )
 from .chat import chat, chat_text, chat_usage
+from .config import get_settings, reload_settings, settings
 from .image import generate_image, generate_image_b64
 from .costs import (
+    CostEstimate,
+    ImageCostEstimate,
+    ImagePricing,
+    ImagePricingCatalogue,
+    Pricing,
+    PricingCatalogue,
     cost_for_image_response,
     cost_for_image_usage,
-    estimate_cost,
+    cost_for_model,
+    cost_for_response,
+    cost_from_tokens,
+    cost_from_usage,
     estimate_image_cost,
     get_image_pricing,
     get_pricing,
-    ImagePricingCatalogue,
-    ImagePricing,
-    ImageCostEstimate,
-    Pricing,
-    PricingCatalogue,
     print_image_cost_breakdown,
     print_image_cost_summary,
-    register_image_pricing,
-    register_image_pricing_alias,
-    register_pricing,
     validate_image_size_for_model,
 )
-from .embeddings import embed_texts, cosine_similarity
+from .embeddings import cosine_similarity, embed_texts
 from .exceptions import (
-    LLMUtilitiesError,
-    ConfigurationError,
     AuthenticationError,
+    ConfigurationError,
+    LLMUtilitiesError,
     MissingDependencyError,
+    ProviderError,
     RateLimitError,
     RequestError,
     ResponseError,
     ResponseFormatError,
-    ProviderError,
 )
 
 __all__ = [
@@ -73,25 +75,31 @@ __all__ = [
     "chat",
     "chat_text",
     "chat_usage",
+    # config
+    "settings",
+    "get_settings",
+    "reload_settings",
     # image
     "generate_image",
     "generate_image_b64",
-    # costs
-    "estimate_cost",
+    # text costs
+    "cost_from_tokens",
+    "cost_from_usage",
+    "cost_for_model",
+    "cost_for_response",
+    "get_pricing",
+    "Pricing",
+    "PricingCatalogue",
+    "CostEstimate",
+    # image costs
     "estimate_image_cost",
     "cost_for_image_usage",
     "cost_for_image_response",
-    "get_pricing",
     "get_image_pricing",
     "validate_image_size_for_model",
-    "Pricing",
-    "PricingCatalogue",
-    "ImagePricingCatalogue",
     "ImagePricing",
+    "ImagePricingCatalogue",
     "ImageCostEstimate",
-    "register_pricing",
-    "register_image_pricing",
-    "register_image_pricing_alias",
     "print_image_cost_breakdown",
     "print_image_cost_summary",
     # embeddings

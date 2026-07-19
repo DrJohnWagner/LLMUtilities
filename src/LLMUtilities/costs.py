@@ -148,87 +148,35 @@ def _image_pricing_file() -> Path:
     return Path(__file__).with_name("IMAGE_PRICING.json")
 
 
-def _infer_provider_from_model(model: str) -> str:
-    if model.startswith(
-        (
-            "gpt-",
-            "o",
-            "chat-",
-            "gpt-image-",
-            "gpt-realtime-",
-            "o3-",
-            "o4-",
-            "computer-use-",
-        )
-    ):
-        return "openai"
-    if model.startswith("claude-"):
-        return "anthropic"
-    if model.startswith(
-        (
-            "gemini-",
-            "imagen-",
-            "sora-",
-            "lyria-",
-            "veo-",
-            "multilingual-",
-            "multimodalembedding",
-            "model-optimizer",
-            "codey",
-            "translation",
-        )
-    ):
-        return "google"
-    if model.startswith(("kimi-", "moonshot-")):
-        return "moonshot"
-    if model.startswith("deepseek-"):
-        return "deepseek"
-    return "unknown"
 
-
-def _coerce_pricing(model: str, pricing: Pricing | dict[str, Any]) -> Pricing:
-    if isinstance(pricing, Pricing):
-        return pricing
-
+def _coerce_pricing(pricing: dict[str, Any]) -> Pricing:
     return Pricing(
-        provider=str(pricing.get("provider", _infer_provider_from_model(model))),
-        canonical_model_id=str(pricing.get("canonical_model_id", model)),
+        provider=str(pricing["provider"]),
+        canonical_model_id=str(pricing["canonical_model_id"]),
         input_rate=float(pricing["input_rate"]),
         output_rate=float(pricing["output_rate"]),
-        cached_read_rate=(
-            None
-            if pricing.get("cached_read_rate") is None
-            else float(pricing["cached_read_rate"])
+        cached_read_rate=_coerce_optional_float(
+            pricing.get("cached_read_rate")
         ),
-        cached_write_rate=(
-            None
-            if pricing.get("cached_write_rate") is None
-            else float(pricing["cached_write_rate"])
+        cached_write_rate=_coerce_optional_float(
+            pricing.get("cached_write_rate")
         ),
-        batch_input_rate=(
-            None
-            if pricing.get("batch_input_rate") is None
-            else float(pricing["batch_input_rate"])
+        batch_input_rate=_coerce_optional_float(
+            pricing.get("batch_input_rate")
         ),
-        batch_output_rate=(
-            None
-            if pricing.get("batch_output_rate") is None
-            else float(pricing["batch_output_rate"])
+        batch_output_rate=_coerce_optional_float(
+            pricing.get("batch_output_rate")
         ),
         long_context_threshold=(
             None
             if pricing.get("long_context_threshold") is None
             else int(pricing["long_context_threshold"])
         ),
-        long_context_input_rate=(
-            None
-            if pricing.get("long_context_input_rate") is None
-            else float(pricing["long_context_input_rate"])
+        long_context_input_rate=_coerce_optional_float(
+            pricing.get("long_context_input_rate")
         ),
-        long_context_output_rate=(
-            None
-            if pricing.get("long_context_output_rate") is None
-            else float(pricing["long_context_output_rate"])
+        long_context_output_rate=_coerce_optional_float(
+            pricing.get("long_context_output_rate")
         ),
         currency=str(pricing.get("currency", "USD")),
         effective_from=pricing.get("effective_from"),
@@ -237,48 +185,49 @@ def _coerce_pricing(model: str, pricing: Pricing | dict[str, Any]) -> Pricing:
         last_verified_at=pricing.get("last_verified_at"),
     )
 
-
 def _load_pricing_catalogue(path: Path) -> PricingCatalogue:
     raw = json.loads(path.read_text(encoding="utf-8"))
 
-    if isinstance(raw, dict) and "entries" in raw:
-        entries_raw = raw["entries"]
-        schema_version = int(raw.get("schema_version", CATALOGUE_SCHEMA_VERSION))
-        catalogue_version = str(raw.get("catalogue_version", DEFAULT_CATALOGUE_VERSION))
-        generated_at = str(raw.get("generated_at", DEFAULT_LAST_VERIFIED_AT))
-    else:
-        schema_version = CATALOGUE_SCHEMA_VERSION
-        catalogue_version = DEFAULT_CATALOGUE_VERSION
-        generated_at = DEFAULT_LAST_VERIFIED_AT
-        entries_raw = [
-            {
-                "provider": _infer_provider_from_model(model),
-                "canonical_model_id": model,
-                "input_rate": spec["input_per_million_tokens"],
-                "output_rate": spec["output_per_million_tokens"],
-                "cached_read_rate": spec.get("cached_input_per_million_tokens"),
-                "cached_write_rate": spec.get(
-                    "cached_input_per_million_tokens", spec["input_per_million_tokens"]
-                ),
-                "currency": "USD",
-                "effective_from": DEFAULT_LAST_VERIFIED_AT,
-                "source_url": None,
-                "last_verified_at": DEFAULT_LAST_VERIFIED_AT,
-            }
-            for model, spec in raw.items()
-        ]
+    if not isinstance(raw, dict) or "entries" not in raw:
+        raise ValueError(
+            "PRICING.json must be a schema-v1 catalogue object with an "
+            "'entries' array."
+        )
 
-    entries = tuple(
-        _coerce_pricing(str(entry["canonical_model_id"]), entry)
-        for entry in entries_raw
+    schema_version = int(
+        raw.get(
+            "schema_version",
+            CATALOGUE_SCHEMA_VERSION,
+        )
     )
+
+    if schema_version != CATALOGUE_SCHEMA_VERSION:
+        raise ValueError(
+            f"Unsupported PRICING schema_version {schema_version}; "
+            f"expected {CATALOGUE_SCHEMA_VERSION}."
+        )
+
+    catalogue_version = str(
+        raw.get(
+            "catalogue_version",
+            DEFAULT_CATALOGUE_VERSION,
+        )
+    )
+    generated_at = str(
+        raw.get(
+            "generated_at",
+            DEFAULT_LAST_VERIFIED_AT,
+        )
+    )
+
+    entries = tuple(_coerce_pricing(entry) for entry in raw["entries"])
+
     return PricingCatalogue(
         schema_version=schema_version,
         catalogue_version=catalogue_version,
         generated_at=generated_at,
         entries=entries,
     )
-
 
 def _coerce_optional_float(value: Any) -> Optional[float]:
     if value is None:
@@ -302,24 +251,29 @@ def _coerce_reference_image_output_costs(
 
 
 def _coerce_image_pricing(
-    model: str, pricing: ImagePricing | dict[str, Any]
+    pricing: dict[str, Any],
 ) -> ImagePricing:
-    if isinstance(pricing, ImagePricing):
-        return pricing
-
     return ImagePricing(
-        provider=str(pricing.get("provider", _infer_provider_from_model(model))),
-        canonical_model_id=str(pricing.get("canonical_model_id", model)),
-        text_input_rate=_coerce_optional_float(pricing.get("text_input_rate")),
-        text_output_rate=_coerce_optional_float(pricing.get("text_output_rate")),
+        provider=str(pricing["provider"]),
+        canonical_model_id=str(pricing["canonical_model_id"]),
+        text_input_rate=_coerce_optional_float(
+            pricing.get("text_input_rate")
+        ),
+        text_output_rate=_coerce_optional_float(
+            pricing.get("text_output_rate")
+        ),
         text_cached_read_rate=_coerce_optional_float(
             pricing.get("text_cached_read_rate")
         ),
         text_cached_write_rate=_coerce_optional_float(
             pricing.get("text_cached_write_rate")
         ),
-        image_input_rate=_coerce_optional_float(pricing.get("image_input_rate")),
-        image_output_rate=_coerce_optional_float(pricing.get("image_output_rate")),
+        image_input_rate=_coerce_optional_float(
+            pricing.get("image_input_rate")
+        ),
+        image_output_rate=_coerce_optional_float(
+            pricing.get("image_output_rate")
+        ),
         image_cached_read_rate=_coerce_optional_float(
             pricing.get("image_cached_read_rate")
         ),
@@ -356,7 +310,7 @@ def _coerce_image_pricing(
         partial_image_output_tokens=(
             None
             if pricing.get("partial_image_output_tokens") is None
-            else int(pricing.get("partial_image_output_tokens"))
+            else int(pricing["partial_image_output_tokens"])
         ),
         currency=str(pricing.get("currency", "USD")),
         effective_from=pricing.get("effective_from"),
@@ -364,7 +318,6 @@ def _coerce_image_pricing(
         source_url=pricing.get("source_url"),
         last_verified_at=pricing.get("last_verified_at"),
     )
-
 
 def _load_image_pricing_catalogue(path: Path) -> ImagePricingCatalogue:
     raw = json.loads(path.read_text(encoding="utf-8"))
@@ -375,17 +328,17 @@ def _load_image_pricing_catalogue(path: Path) -> ImagePricingCatalogue:
         )
 
     schema_version = int(raw.get("schema_version", CATALOGUE_SCHEMA_VERSION))
-    if schema_version != 1:
+    if schema_version != CATALOGUE_SCHEMA_VERSION:
         raise ValueError(
-            f"Unsupported IMAGE_PRICING schema_version {schema_version}; expected 1."
+            f"Unsupported IMAGE_PRICING schema_version {schema_version}; "
+            f"expected {CATALOGUE_SCHEMA_VERSION}."
         )
-
     entries_raw = raw["entries"]
     catalogue_version = str(raw.get("catalogue_version", DEFAULT_CATALOGUE_VERSION))
     generated_at = str(raw.get("generated_at", DEFAULT_LAST_VERIFIED_AT))
 
     entries = tuple(
-        _coerce_image_pricing(str(entry["canonical_model_id"]), entry)
+        _coerce_image_pricing(entry)
         for entry in entries_raw
     )
 
@@ -398,139 +351,37 @@ def _load_image_pricing_catalogue(path: Path) -> ImagePricingCatalogue:
 
 
 PRICING_CATALOGUE = _load_pricing_catalogue(_pricing_file())
-_BASE_PRICING_ENTRIES: dict[str, Pricing] = {
+
+PRICING: dict[str, Pricing] = {
     entry.canonical_model_id: entry for entry in PRICING_CATALOGUE.entries
 }
-PRICING_OVERRIDES: dict[str, Pricing] = {}
-PRICING_ALIASES: dict[str, str] = {}
-PRICING: dict[str, Pricing] = {}
+
+
 IMAGE_PRICING_CATALOGUE = _load_image_pricing_catalogue(_image_pricing_file())
-_BASE_IMAGE_PRICING_ENTRIES: dict[str, ImagePricing] = {
+
+IMAGE_PRICING: dict[str, ImagePricing] = {
     entry.canonical_model_id: entry for entry in IMAGE_PRICING_CATALOGUE.entries
 }
-IMAGE_PRICING_OVERRIDES: dict[str, ImagePricing] = {}
-IMAGE_PRICING_ALIASES: dict[str, str] = {}
-IMAGE_PRICING: dict[str, ImagePricing] = {}
-
-
-def _resolve_alias(model: str) -> str:
-    resolved = model
-    seen: set[str] = set()
-
-    while resolved in PRICING_ALIASES:
-        if resolved in seen:
-            break
-        seen.add(resolved)
-        resolved = PRICING_ALIASES[resolved]
-
-    return resolved
-
-
-def _resolve_pricing(model: str) -> Pricing:
-    if model in PRICING_OVERRIDES:
-        return PRICING_OVERRIDES[model]
-
-    resolved = _resolve_alias(model)
-    if resolved in PRICING_OVERRIDES:
-        return PRICING_OVERRIDES[resolved]
-
-    if resolved in _BASE_PRICING_ENTRIES:
-        return _BASE_PRICING_ENTRIES[resolved]
-
-    if model in _BASE_PRICING_ENTRIES:
-        return _BASE_PRICING_ENTRIES[model]
-
-    known = ", ".join(
-        sorted(
-            set(_BASE_PRICING_ENTRIES) | set(PRICING_OVERRIDES) | set(PRICING_ALIASES)
-        )
-    )
-    raise KeyError(f"No pricing registered for model {model!r}. Known models: {known}")
-
-
-def _resolve_image_pricing(model: str) -> ImagePricing:
-    if model in IMAGE_PRICING_OVERRIDES:
-        return IMAGE_PRICING_OVERRIDES[model]
-
-    resolved = model
-    seen: set[str] = set()
-    while resolved in IMAGE_PRICING_ALIASES:
-        if resolved in seen:
-            break
-        seen.add(resolved)
-        resolved = IMAGE_PRICING_ALIASES[resolved]
-
-    if resolved in IMAGE_PRICING_OVERRIDES:
-        return IMAGE_PRICING_OVERRIDES[resolved]
-
-    if resolved in _BASE_IMAGE_PRICING_ENTRIES:
-        return _BASE_IMAGE_PRICING_ENTRIES[resolved]
-
-    if model in _BASE_IMAGE_PRICING_ENTRIES:
-        return _BASE_IMAGE_PRICING_ENTRIES[model]
-
-    known = ", ".join(
-        sorted(
-            set(_BASE_IMAGE_PRICING_ENTRIES)
-            | set(IMAGE_PRICING_OVERRIDES)
-            | set(IMAGE_PRICING_ALIASES)
-        )
-    )
-    raise KeyError(
-        f"No image pricing registered for model {model!r}. Known models: {known}"
-    )
-
-
-def _refresh_pricing_index() -> None:
-    PRICING.clear()
-
-    for model, entry in _BASE_PRICING_ENTRIES.items():
-        PRICING[model] = entry
-
-    for model, entry in PRICING_OVERRIDES.items():
-        PRICING[model] = entry
-
-    for alias, target_model in PRICING_ALIASES.items():
-        PRICING[alias] = _resolve_pricing(target_model)
-
-    IMAGE_PRICING.clear()
-
-    for model, entry in _BASE_IMAGE_PRICING_ENTRIES.items():
-        IMAGE_PRICING[model] = entry
-
-    for model, entry in IMAGE_PRICING_OVERRIDES.items():
-        IMAGE_PRICING[model] = entry
-
-    for alias, target_model in IMAGE_PRICING_ALIASES.items():
-        IMAGE_PRICING[alias] = _resolve_image_pricing(target_model)
-
-
-def register_pricing(model: str, pricing: Pricing | dict[str, Any]) -> None:
-    PRICING_OVERRIDES[model] = _coerce_pricing(model, pricing)
-    _refresh_pricing_index()
-
-
-def register_image_pricing(model: str, pricing: ImagePricing | dict[str, Any]) -> None:
-    IMAGE_PRICING_OVERRIDES[model] = _coerce_image_pricing(model, pricing)
-    _refresh_pricing_index()
-
-
-def register_pricing_alias(alias: str, target_model: str) -> None:
-    PRICING_ALIASES[alias] = target_model
-    _refresh_pricing_index()
-
-
-def register_image_pricing_alias(alias: str, target_model: str) -> None:
-    IMAGE_PRICING_ALIASES[alias] = target_model
-    _refresh_pricing_index()
 
 
 def get_pricing(model: str) -> Pricing:
-    return _resolve_pricing(model)
+    try:
+        return PRICING[model]
+    except KeyError:
+        known = ", ".join(sorted(PRICING))
+        raise KeyError(
+            f"No pricing available for model {model!r}. " f"Known models: {known}"
+        ) from None
 
 
 def get_image_pricing(model: str) -> ImagePricing:
-    return _resolve_image_pricing(model)
+    try:
+        return IMAGE_PRICING[model]
+    except KeyError:
+        known = ", ".join(sorted(IMAGE_PRICING))
+        raise KeyError(
+            f"No image pricing available for model {model!r}. " f"Known models: {known}"
+        ) from None
 
 
 _DIMENSION_PATTERN = re.compile(r"^(\d+)x(\d+)$")
@@ -641,12 +492,6 @@ def _select_image_pricing_rates(
         image_output_rate,
         image_cached_read_rate,
     )
-
-
-def _rate_cost(tokens: int, rate: Optional[float]) -> float:
-    if tokens <= 0 or rate is None:
-        return 0.0
-    return (tokens / 1_000_000) * rate
 
 
 def _strict_rate_cost(tokens: int, rate: Optional[float], *, label: str) -> float:
@@ -1499,78 +1344,3 @@ def print_image_cost_summary(
         f"Total cost: {format_cost(estimate.total_cost_usd)}"
     )
     _emit("---")
-
-
-def register_default_pricing_aliases() -> None:
-    """
-    Register a few practical aliases for common local/default model names.
-
-    This is useful when your config or notebooks use shorter or older names
-    that should resolve to a canonical pricing entry.
-    """
-    aliases = {
-        # OpenAI
-        "gpt-5": "gpt-5.4",
-        "gpt-5-mini": "gpt-5.4-mini",
-        "gpt-5-nano": "gpt-5.4-nano",
-
-        # Anthropic
-        "claude-sonnet-4-0": "claude-sonnet-4.6",
-        "claude-sonnet-4": "claude-sonnet-4.6",
-        "claude-haiku-4": "claude-haiku-4.5",
-        "claude-opus-4": "claude-opus-4.6",
-
-        # Google
-        "google-default": "gemini-2.5-flash",
-        "gemini-pro": "gemini-2.5-pro",
-        "gemini-flash": "gemini-2.5-flash",
-        "gemini-flash-lite": "gemini-2.5-flash-lite",
-    }
-
-    for alias, target_model in aliases.items():
-        register_pricing_alias(alias, target_model)
-
-
-register_default_pricing_aliases()
-
-
-def register_default_image_pricing_aliases() -> None:
-    aliases = {
-        "gpt-image-1": "gpt-image-1.5",
-        "openai-image-default": "gpt-image-1.5",
-    }
-
-    for alias, target_model in aliases.items():
-        register_image_pricing_alias(alias, target_model)
-
-
-register_default_image_pricing_aliases()
-
-
-def estimate_cost(
-    *,
-    model: str,
-    usage: "ChatUsage",
-    cached_input_tokens: Optional[int] = None,
-    cache_creation_input_tokens: Optional[int] = None,
-    cache_write_tokens: Optional[int] = None,
-    pricing_mode: Literal["standard", "batch"] = "standard",
-    context_tokens: Optional[int] = None,
-) -> CostEstimate:
-    """
-    Alias for :func:`cost_for_response`.
-
-    Returns a :class:`CostEstimate` for the given model and usage object.
-    """
-    return cost_for_response(
-        model=model,
-        usage=usage,
-        cached_input_tokens=cached_input_tokens,
-        cache_creation_input_tokens=cache_creation_input_tokens,
-        cache_write_tokens=cache_write_tokens,
-        pricing_mode=pricing_mode,
-        context_tokens=context_tokens,
-    )
-
-
-_refresh_pricing_index()

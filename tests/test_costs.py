@@ -21,8 +21,6 @@ from LLMUtilities.costs import (
     get_pricing,
     print_cost_breakdown,
     print_cost_summary,
-    register_pricing,
-    register_pricing_alias,
 )
 from LLMUtilities.types import ChatUsage
 

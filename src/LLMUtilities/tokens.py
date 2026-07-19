@@ -218,7 +218,7 @@ def _count_anthropic_text_tokens(text: str, model: Optional[str] = None) -> int:
     client = Anthropic(api_key=api_key)
 
     response = client.messages.count_tokens(
-        model=model or settings.anthropic.chat_model or "claude-sonnet-4-6",
+        model=model or settings.anthropic.chat_model,
         messages=[
             {
                 "role": "user",
@@ -269,7 +269,7 @@ def _count_anthropic_message_tokens(
     client = Anthropic(api_key=api_key)
 
     response = client.messages.count_tokens(
-        model=model or settings.anthropic.chat_model or "claude-sonnet-4-6",
+        model=model or settings.anthropic.chat_model or "claude-sonnet-5",
         system="\n\n".join(system_parts) if system_parts else None,
         messages=anthropic_messages,
     )
@@ -294,7 +294,7 @@ def _count_google_text_tokens(text: str, model: Optional[str] = None) -> int:
     client = genai.Client(api_key=api_key)
 
     response = client.models.count_tokens(
-        model=model or settings.google.chat_model or "gemini-2.5-flash",
+        model=model or settings.google.chat_model,
         contents=text,
     )
     return response.total_tokens
@@ -332,7 +332,7 @@ def _count_google_message_tokens(
 
     client = genai.Client(api_key=api_key)
 
-    resolved_model = model or settings.google.chat_model or "gemini-2.5-flash"
+    resolved_model = model or settings.google.chat_model
     total_tokens = 0
 
     if contents:

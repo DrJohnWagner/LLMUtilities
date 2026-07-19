@@ -19,8 +19,6 @@ from LLMUtilities.costs import (
     estimate_image_cost,
     get_image_pricing,
     normalise_image_usage,
-    register_image_pricing,
-    register_image_pricing_alias,
     validate_image_size_for_model,
 )
 from LLMUtilities.types import (

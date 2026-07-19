@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from LLMUtilities.config import settings
+from LLMUtilities.config import get_settings
 from LLMUtilities.exceptions import (
     AuthenticationError,
     MissingDependencyError,
@@ -33,7 +33,6 @@ from LLMUtilities.types import (
     Message,
     TextContentPart,
 )
-
 
 # ---------------------------------------------------------------------------
 # Provider cases
@@ -176,16 +175,20 @@ def _install_fake_openai(
 
 class TestOpenAICompatibleProviderConfiguration:
     def test_moonshot_configuration(self) -> None:
+        configured = get_settings()
+
         assert MoonshotChatModel.provider_name == "moonshot"
         assert MoonshotChatModel.openai_base_url == "https://api.moonshot.ai/v1"
-        assert MoonshotChatModel.default_model == settings.moonshot.chat_model
-        assert MoonshotChatModel.api_key == settings.moonshot_api_key
+        assert MoonshotChatModel.default_model == configured.moonshot.chat_model
+        assert MoonshotChatModel.api_key == configured.moonshot_api_key
 
     def test_deepseek_configuration(self) -> None:
+        configured = get_settings()
+
         assert DeepSeekChatModel.provider_name == "deepseek"
         assert DeepSeekChatModel.openai_base_url == "https://api.deepseek.com"
-        assert DeepSeekChatModel.default_model == settings.deepseek.chat_model
-        assert DeepSeekChatModel.api_key == settings.deepseek_api_key
+        assert DeepSeekChatModel.default_model == configured.deepseek.chat_model
+        assert DeepSeekChatModel.api_key == configured.deepseek_api_key
 
     @pytest.mark.parametrize(
         (
