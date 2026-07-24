@@ -5,27 +5,14 @@
 
 ### Normalise token accounting
 
-* [ ] Redesign `ChatUsage` so token fields have explicit, provider-independent semantics:
-
-  * [ ] `total_input_tokens`
-  * [ ] `uncached_input_tokens`
-  * [ ] `cached_read_input_tokens`
-  * [ ] `cache_creation_input_tokens`
-  * [ ] `output_tokens`
-  * [ ] `total_tokens`
-* [ ] Update the OpenAI Responses adapter to extract cached-input token details.
 * [ ] Update the OpenAI-compatible Chat Completions adapter so cached tokens are not billed twice.
 * [ ] Verify Anthropic cache-read and cache-creation accounting against the normalised schema.
 * [ ] Verify Google cached-token semantics before exposing cached usage.
-* [ ] Rewrite cost calculations to consume the normalised fields.
 * [ ] Add provider-specific tests covering cached, uncached and cache-creation tokens.
 * [ ] Add regression tests proving cached tokens cannot be charged at both full and discounted rates.
 
 ### Fix configuration reloads
 
-* [ ] Stop capturing `settings` values in provider class attributes at import time.
-* [ ] Resolve default models, API keys, timeouts and retry counts when provider instances are created.
-* [ ] Make `reload_settings()` update all subsequent provider instances.
 * [ ] Add tests that:
 
   * [ ] change environment variables
@@ -45,24 +32,12 @@
 ### Correct package metadata
 
 * [ ] Replace `version = "0.0.0"` with an intentional package version.
-* [ ] Replace `requires-python = "==3.10.13"` with a supported Python range.
-* [ ] Decide which Python versions are officially supported.
-* [ ] Move provider SDKs into optional dependency groups:
-
-  * [ ] `LLMUtilities[openai]`
-  * [ ] `LLMUtilities[anthropic]`
-  * [ ] `LLMUtilities[google]`
-  * [ ] `LLMUtilities[all]`
-* [ ] Keep only genuinely universal runtime dependencies in the base package.
 * [ ] Move exact environment pins into a lock file or development requirements file.
-* [ ] Make the README installation instructions match `pyproject.toml`.
-* [ ] Verify that the base package imports without any provider SDK installed.
 
 ### Apply or remove configuration options
 
 * [ ] Apply provider temperature defaults consistently.
 * [ ] Apply provider maximum-output-token defaults consistently.
-* [ ] Decide whether image defaults belong in configuration or request construction.
 * [ ] Remove configuration fields that are not supported.
 * [ ] Document precedence:
 
@@ -79,11 +54,9 @@
 
 ## P1 — Type safety and interfaces
 
-* [ ] Define a `ChatProvider` protocol.
-* [ ] Define an `ImageProvider` protocol.
 * [ ] Add return types to provider factories.
 * [ ] Type all public `provider` parameters.
-* [ ] Resolve the mismatch between `chat_usage() -> ChatUsage` and optional `ChatResponse.usage`.
+* [ ] Decide whether `ChatResponse.usage` should remain `Optional[CommonUsage]`.
 * [ ] Decide whether all adapters must always return an empty `ChatUsage` object rather than `None`.
 * [ ] Run strict mypy over the complete package.
 * [ ] Add strict mypy to CI.
@@ -91,8 +64,6 @@
 
 ## P1 — Exception consistency
 
-* [ ] Apply package exception normalisation to embeddings.
-* [ ] Apply package exception normalisation to token-counting API calls.
 * [ ] Apply package exception normalisation to structured-output retries.
 * [ ] Distinguish:
 
@@ -118,23 +89,14 @@
 
 ### Clarify token counting
 
-* [ ] Document OpenAI local token counting as an estimate.
 * [ ] Document that image parts are currently excluded from token estimates.
 * [ ] Review OpenAI message-framing overhead.
 * [ ] Review whether Google system and conversation tokens can be counted in one provider request.
 * [ ] Add tests distinguishing exact provider counts from local estimates.
-* [ ] Consider returning a result object containing:
-
-  * [ ] token count
-  * [ ] provider
-  * [ ] model
-  * [ ] method
-  * [ ] whether the value is exact or estimated
 
 ### Improve structured output
 
 * [ ] Prefer provider-native structured output where supported.
-* [ ] Retain prompt-and-repair fallback for unsupported providers.
 * [ ] Catch narrower exception types during parsing and repair.
 * [ ] Preserve the first parsing exception as useful diagnostic context.
 * [ ] Add configurable repair-attempt limits.
@@ -144,18 +106,17 @@
 ## P2 — Pricing
 
 * [ ] Define and document the pricing catalogue schema.
-* [ ] Validate catalogue files at load time.
 * [ ] Detect duplicate canonical model IDs.
-* [ ] Validate aliases and reject alias cycles.
 * [ ] Validate non-negative rates.
 * [ ] Validate effective-date formats.
-* [ ] Decide how expired pricing entries should behave.
 * [ ] Add a command or script for refreshing pricing data.
 * [ ] Add tests that verify catalogue provenance fields.
 * [ ] Add tests for long-context pricing boundaries.
 * [ ] Add tests for batch pricing fallbacks.
 * [ ] Add tests for unknown and expired models.
 * [ ] Document that pricing data can become stale despite verification timestamps.
+
+Expired pricing entries are already handled: `select_pricing()` excludes any record whose effective window does not cover the requested date, and raises `PricingUnavailableError` when no record applies rather than falling back silently.
 
 ## P2 — Multimodal support
 
@@ -176,25 +137,11 @@
 * [ ] Add configurable field exclusion.
 * [ ] Add an option to record hashes or metadata without recording content.
 * [ ] Ensure API keys and authentication headers can never enter traces.
-* [ ] Add tests for truncation, redaction and non-serialisable raw responses.
+* [ ] Add tests for redaction and non-serialisable raw responses.
 * [ ] Consider file locking or another strategy for concurrent JSONL writes.
 
 ## P2 — Testing
 
-* [ ] Split `tests/test_package.py` into focused modules:
-
-  * [ ] `test_chat.py`
-  * [ ] `test_types.py`
-  * [ ] `test_openai.py`
-  * [ ] `test_anthropic.py`
-  * [ ] `test_google.py`
-  * [ ] `test_openai_compatible.py`
-  * [ ] `test_embeddings.py`
-  * [ ] `test_tokens.py`
-  * [ ] `test_costs.py`
-  * [ ] `test_image.py`
-  * [ ] `test_parsing.py`
-  * [ ] `test_tracing.py`
 * [ ] Add shared provider contract tests.
 * [ ] Add tests for empty system-only requests.
 * [ ] Add tests for conflicting `provider` and `provider_name` arguments.
@@ -220,7 +167,6 @@
 ## P3 — Public API and documentation
 
 * [ ] Define the supported public API explicitly.
-* [ ] Decide which functions should be exported from `LLMUtilities.__init__`.
 * [ ] Export related helpers consistently or keep them deliberately internal.
 * [ ] Add API documentation for every public function.
 * [ ] Add a provider capability matrix generated from code rather than maintained manually.
@@ -229,9 +175,7 @@
   * [ ] custom provider instances
   * [ ] cached-token costing
   * [ ] batch pricing
-  * [ ] structured output
   * [ ] tracing with redaction
-  * [ ] missing optional dependencies
 * [ ] Add a changelog.
 * [ ] Add contribution guidelines.
 * [ ] Add release instructions.
@@ -244,10 +188,8 @@
 * [ ] Tool-call normalisation.
 * [ ] Stop-sequence support.
 * [ ] Provider-native reasoning controls.
-* [ ] Native structured-output support.
 * [ ] Usage and cost aggregation across multiple calls.
 * [ ] Retry policies independent of provider SDK behaviour.
-* [ ] Provider capability discovery.
 * [ ] Request and response middleware.
 * [ ] Pluggable pricing catalogues.
 * [ ] Automatic tracing integration.
@@ -256,9 +198,8 @@
 
 The package should not be treated as stable until all of the following are complete:
 
-* [ ] Cached-token accounting has one documented cross-provider meaning.
+* [ ] Each provider's cache accounting is documented and tested against that provider's billing semantics.
 * [ ] Configuration reload behaviour is correct and tested.
-* [ ] Optional dependencies match the installation documentation.
 * [ ] Unsupported multimodal data is never silently discarded.
 * [ ] Public APIs pass strict mypy.
 * [ ] CI tests all supported Python versions.
