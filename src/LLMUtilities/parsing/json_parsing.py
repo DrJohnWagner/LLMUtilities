@@ -2,37 +2,9 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Optional, Type
+from typing import Any
 
 from pydantic import BaseModel, TypeAdapter
-
-# from LLMUtilities.parsing.json_parsing import parse_json
-
-# text = """
-# Here is your result:
-
-# ```json
-# {
-#   "name": "JoJo",
-#   "score": 42,
-# }
-# ```
-# """
-
-# data = parse_json(text)
-# print(data)
-
-# WITH VALIDATION:
-# from pydantic import BaseModel
-# from LLMUtilities.parsing.json_parsing import parse_json_as
-
-# class Result(BaseModel):
-#     name: str
-#     score: int
-
-# obj = parse_json_as(text, Result)
-# print(obj.score)
-
 
 _JSON_BLOCK_RE = re.compile(
     r"```(?:json)?\s*(.*?)\s*```",
@@ -52,12 +24,10 @@ def extract_json_string(text: str) -> str:
     if not text or not isinstance(text, str):
         raise ValueError("Input text must be a non-empty string.")
 
-    # 1. fenced code block
     match = _JSON_BLOCK_RE.search(text)
     if match:
         return match.group(1).strip()
 
-    # 2. first JSON-looking object/array
     brace_start = text.find("{")
     bracket_start = text.find("[")
 
@@ -66,15 +36,10 @@ def extract_json_string(text: str) -> str:
         start = min(starts)
         return _extract_balanced_json(text[start:])
 
-    # 3. fallback
     return text.strip()
 
 
-def parse_json(
-    text: str,
-    *,
-    strict: bool = False,
-) -> Any:
+def parse_json(text: str, *, strict: bool = False) -> Any:
     """
     Parse JSON from LLM output.
 
@@ -96,15 +61,8 @@ def parse_json(
         raise ValueError(f"Failed to parse JSON after repair:\n{json_str}") from exc
 
 
-def parse_json_as(
-    text: str,
-    model: Any,
-    *,
-    strict: bool = False,
-) -> Any:
-    """
-    Parse JSON and validate against a Pydantic model or type annotation.
-    """
+def parse_json_as(text: str, model: Any, *, strict: bool = False) -> Any:
+    """Parse JSON and validate against a Pydantic model or type annotation."""
     data = parse_json(text, strict=strict)
 
     if isinstance(model, type) and issubclass(model, BaseModel):
@@ -120,31 +78,18 @@ def repair_json(text: str) -> str:
     """
     s = text.strip()
 
-    # Replace single quotes with double quotes (naive but useful)
     if "'" in s and '"' not in s:
         s = s.replace("'", '"')
 
-    # Remove trailing commas
     s = re.sub(r",\s*([}\]])", r"\1", s)
-
-    # Remove leading/trailing junk outside outer braces
     s = _strip_to_outer_json(s)
-
-    # Remove comments (// ...) outside quoted strings.
     s = _remove_json_line_comments(s)
 
     return s.strip()
 
 
-def safe_parse_json(
-    text: str,
-    *,
-    default: Any = None,
-    strict: bool = False,
-) -> Any:
-    """
-    Parse JSON but return a default instead of raising.
-    """
+def safe_parse_json(text: str, *, default: Any = None, strict: bool = False) -> Any:
+    """Parse JSON but return a default instead of raising."""
     try:
         return parse_json(text, strict=strict)
     except Exception:
@@ -152,9 +97,7 @@ def safe_parse_json(
 
 
 def _extract_balanced_json(text: str) -> str:
-    """
-    Extract the first balanced JSON object/array from text.
-    """
+    """Extract the first balanced JSON object/array from text."""
     stack: list[str] = []
     start = None
     in_string = False
@@ -190,15 +133,13 @@ def _extract_balanced_json(text: str) -> str:
                 continue
 
             if not stack and start is not None:
-                return text[start:i + 1]
+                return text[start : i + 1]
 
     return text
 
 
 def _matches(opening: str, closing: str) -> bool:
-    return (opening == "{" and closing == "}") or (
-        opening == "[" and closing == "]"
-    )
+    return (opening == "{" and closing == "}") or (opening == "[" and closing == "]")
 
 
 def _remove_json_line_comments(text: str) -> str:
@@ -241,9 +182,7 @@ def _remove_json_line_comments(text: str) -> str:
 
 
 def _strip_to_outer_json(text: str) -> str:
-    """
-    Strip text to the outermost JSON object or array.
-    """
+    """Strip text to the outermost JSON object or array."""
     brace_start = text.find("{")
     bracket_start = text.find("[")
 

@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "catalogue_version": "2026-07-18",
+  "generated_at": "2026-07-18T16:55:00Z",
+  "entries": [
+    {
+      "provider": "deepseek",
+      "canonical_model_id": "deepseek-v4-flash",
+      "input_rate": 0.14,
+      "output_rate": 0.28,
+      "cached_read_rate": 0.0028,
+      "cached_write_rate": 0.14,
+      "batch_input_rate": null,
+      "batch_output_rate": null,
+      "long_context_threshold": null,
+      "long_context_input_rate": null,
+      "long_context_output_rate": null,
+      "currency": "USD",
+      "effective_from": "2026-07-18",
+      "effective_until": null,
+      "source_url": "https://api-docs.deepseek.com/",
+      "last_verified_at": "2026-07-18T16:55:00Z"
+    },
+    {
+      "provider": "deepseek",
+      "canonical_model_id": "deepseek-v4-pro",
+      "input_rate": 0.435,
+      "output_rate": 0.87,
+      "cached_read_rate": 0.003625,
+      "cached_write_rate": 0.435,
+      "batch_input_rate": null,
+      "batch_output_rate": null,
+      "long_context_threshold": null,
+      "long_context_input_rate": null,
+      "long_context_output_rate": null,
+      "currency": "USD",
+      "effective_from": "2026-07-18",
+      "effective_until": null,
+      "source_url": "https://api-docs.deepseek.com/",
+      "last_verified_at": "2026-07-18T16:55:00Z"
+    }
+  ]
+}

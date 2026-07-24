@@ -1,57 +1,33 @@
 class LLMUtilitiesError(Exception):
-    """
-    Base exception for all LLMUtilities errors.
-    """
-    pass
+    """Base exception for all LLMUtilities errors."""
 
 
 class ConfigurationError(LLMUtilitiesError):
-    """
-    Raised when required configuration is missing or invalid.
-    """
-    pass
+    """Raised when required configuration is missing or invalid."""
 
 
 class AuthenticationError(LLMUtilitiesError):
-    """
-    Raised when a provider rejects authentication credentials.
-    """
-    pass
+    """Raised when a provider rejects authentication credentials."""
 
 
 class RateLimitError(LLMUtilitiesError):
-    """
-    Raised when a provider rate limit is hit.
-    """
-    pass
+    """Raised when a provider rate limit is hit."""
 
 
 class RequestError(LLMUtilitiesError):
-    """
-    Raised when a request to a provider fails before a valid response is returned.
-    """
-    pass
+    """Raised when a request to a provider fails before a valid response is returned."""
 
 
 class ResponseError(LLMUtilitiesError):
-    """
-    Raised when a provider response is malformed or unusable.
-    """
-    pass
+    """Raised when a provider response is malformed or unusable."""
 
 
 class ResponseFormatError(ResponseError):
-    """
-    Raised when a provider response cannot be parsed into the expected format.
-    """
-    pass
+    """Raised when a provider response cannot be parsed into the expected format."""
 
 
 class ProviderError(LLMUtilitiesError):
-    """
-    Raised for provider-specific failures not covered by a more specific exception.
-    """
-    pass
+    """Raised for provider-specific failures not covered by a more specific exception."""
 
 
 class MissingDependencyError(LLMUtilitiesError):
@@ -60,4 +36,21 @@ class MissingDependencyError(LLMUtilitiesError):
 
     The message always names the missing package and the affected provider.
     """
-    pass
+
+
+class UnsupportedCapabilityError(LLMUtilitiesError):
+    """
+    Raised when a provider is asked to perform an operation for a capability
+    it does not implement, e.g. image generation on a chat-only provider.
+    """
+
+
+class PricingUnavailableError(LLMUtilitiesError):
+    """Raised when no pricing record can be resolved for a requested model."""
+
+
+class CostCalculationUnavailableError(LLMUtilitiesError):
+    """
+    Raised when a cost cannot be calculated for an otherwise valid response,
+    e.g. usage information is missing from the provider response.
+    """

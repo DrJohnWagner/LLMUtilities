@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 from pydantic import BaseModel
 
@@ -32,7 +32,7 @@ def content_to_text(content: Any) -> str:
     return str(content)
 
 
-def serialise_content(content: Any, *, max_chars: int | None = None) -> Any:
+def serialise_content(content: Any, *, max_chars: Optional[int] = None) -> Any:
     if isinstance(content, str):
         return truncate_text(content, max_chars=max_chars)
 
@@ -56,7 +56,7 @@ def serialise_content(content: Any, *, max_chars: int | None = None) -> Any:
     return serialised
 
 
-def truncate_text(text: str, max_chars: int | None = None) -> str:
+def truncate_text(text: str, max_chars: Optional[int] = None) -> str:
     if max_chars is None or max_chars <= 0:
         return text
 

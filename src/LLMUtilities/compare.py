@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import logging
-from typing import Optional
+from dataclasses import dataclass
+from typing import Any, Optional
 
 from .chat import chat_text
 from .embeddings import cosine_similarity, embed_text
@@ -12,22 +12,6 @@ logger = logging.getLogger(__name__)
 
 def _emit(message: str) -> None:
     logger.info(message)
-
-
-# from LLMUtilities.compare import compare_outputs, print_comparison
-
-# comparison = compare_outputs(
-#     output_a=response_a.text,
-#     output_b=response_b.text,
-#     use_embeddings=True,
-#     embedding_provider="openai",
-#     embedding_model="text-embedding-3-small",
-#     use_judge=True,
-#     judge_provider="openai",
-#     judge_model="gpt-5-mini",
-# )
-
-# print_comparison(comparison)
 
 
 @dataclass(frozen=True)
@@ -59,7 +43,7 @@ def compare_outputs(
     embedding_provider: str = "openai",
     embedding_model: Optional[str] = None,
     use_judge: bool = False,
-    judge_provider=None,
+    judge_provider: Any = None,
     judge_model: Optional[str] = None,
     judge_system: Optional[str] = None,
     judge_prompt: Optional[str] = None,
@@ -82,16 +66,8 @@ def compare_outputs(
 
     embedding_similarity: Optional[float] = None
     if use_embeddings:
-        vector_a = embed_text(
-            output_a,
-            provider=embedding_provider,
-            model=embedding_model,
-        )
-        vector_b = embed_text(
-            output_b,
-            provider=embedding_provider,
-            model=embedding_model,
-        )
+        vector_a = embed_text(output_a, provider_name=embedding_provider, model=embedding_model)
+        vector_b = embed_text(output_b, provider_name=embedding_provider, model=embedding_model)
         embedding_similarity = cosine_similarity(vector_a, vector_b)
 
     judge_verdict: Optional[str] = None
@@ -99,26 +75,19 @@ def compare_outputs(
         prompt = judge_prompt or _default_judge_prompt(output_a, output_b)
         system = judge_system or _default_judge_system()
 
-        # judge_provider may be a provider name string or an instantiated provider.
         if isinstance(judge_provider, str):
             judge_verdict = chat_text(
-                provider_name=judge_provider,
-                model=judge_model,
-                system=system,
-                user=prompt,
+                provider_name=judge_provider, model=judge_model, system=system, user=prompt
             )
         else:
             judge_verdict = chat_text(
-                provider=judge_provider,
-                model=judge_model,
-                system=system,
-                user=prompt,
+                provider=judge_provider, model=judge_model, system=system, user=prompt
             )
 
     judge_provider_name = (
         judge_provider
         if isinstance(judge_provider, str)
-        else getattr(judge_provider, "provider_name", "custom")
+        else getattr(judge_provider, "name", "custom")
     )
 
     return OutputComparison(

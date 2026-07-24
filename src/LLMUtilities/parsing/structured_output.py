@@ -1,40 +1,12 @@
 from __future__ import annotations
 
 import json
-from typing import Optional, Type, TypeVar
+from typing import Any, Optional, Type, TypeVar
 
 from pydantic import BaseModel
 
 from ..chat import chat_text
 from .json_parsing import parse_json_as
-
-# Suppose you have:
-# from pydantic import BaseModel
-
-
-# class PoemSummary(BaseModel):
-#     title: str
-#     themes: list[str]
-#     moods: list[str]
-#     rating: int
-
-# THEN:
-# from LLMUtilities.parsing.structured_output import generate_structured_output
-
-# result = generate_structured_output(
-#     user_prompt=(
-#         "Read the following poem and produce a structured summary.\n\n"
-#         "Poem:\n"
-#         "The moon fell quietly into the dishwater..."
-#     ),
-#     output_model=PoemSummary,
-#     provider_name="openai",
-#     model="gpt-5-mini",
-#     system="You are a precise literary analyst."
-# )
-
-# print(result)
-# print(result.themes)
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -59,9 +31,7 @@ def build_json_schema_prompt(
     if include_schema:
         schema = model.model_json_schema()
         schema_json = json.dumps(schema, indent=4, ensure_ascii=False)
-        parts.append(
-            f"JSON schema:\n{schema_json}"
-        )
+        parts.append(f"JSON schema:\n{schema_json}")
 
     return "\n\n".join(parts)
 
@@ -74,22 +44,17 @@ def build_structured_output_prompt(
     include_rules: bool = True,
 ) -> str:
     schema_prompt = build_json_schema_prompt(
-        model,
-        include_schema=include_schema,
-        include_rules=include_rules,
+        model, include_schema=include_schema, include_rules=include_rules
     )
 
-    return (
-        f"{user_prompt.strip()}\n\n"
-        f"{schema_prompt}"
-    )
+    return f"{user_prompt.strip()}\n\n{schema_prompt}"
 
 
 def generate_structured_output(
     *,
     user_prompt: str,
     output_model: Type[T],
-    provider=None,
+    provider: Any = None,
     provider_name: str = "openai",
     model: Optional[str] = None,
     system: Optional[str] = None,
@@ -118,13 +83,12 @@ def generate_structured_output(
 
     try:
         return parse_json_as(response_text, output_model)
-    except Exception as first_exc:
+    except Exception:
         if not retry_on_parse_failure:
             raise
 
         retry_prompt = build_repair_prompt(
-            bad_output=response_text,
-            output_model=output_model,
+            bad_output=response_text, output_model=output_model
         )
 
         repaired_response_text = chat_text(
@@ -147,16 +111,8 @@ def generate_structured_output(
             ) from second_exc
 
 
-def build_repair_prompt(
-    *,
-    bad_output: str,
-    output_model: Type[T],
-) -> str:
-    schema = json.dumps(
-        output_model.model_json_schema(),
-        indent=4,
-        ensure_ascii=False,
-    )
+def build_repair_prompt(*, bad_output: str, output_model: Type[T]) -> str:
+    schema = json.dumps(output_model.model_json_schema(), indent=4, ensure_ascii=False)
 
     return (
         "The following output was supposed to be a single valid JSON object "
@@ -171,15 +127,10 @@ def build_repair_prompt(
     )
 
 
-def validate_structured_output(
-    data: object,
-    output_model: Type[T],
-) -> T:
+def validate_structured_output(data: object, output_model: Type[T]) -> T:
     if isinstance(data, output_model):
         return data
-
     return output_model.model_validate(data)
 
 
-# Convenience alias
 structured_output = generate_structured_output

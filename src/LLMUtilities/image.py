@@ -1,34 +1,16 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
-from .config import settings
-from .exceptions import ConfigurationError, ResponseError
+from .capabilities import ImageGenerationCapability, require_capability
+from .chat import resolve_provider
+from .exceptions import ResponseError
 from .types import ImageRequest, ImageResponse
-
-
-def get_image_model(provider: Optional[str] = None):
-    provider_name = (provider or settings.default_provider).strip().lower()
-
-    if provider_name == "openai":
-        from .providers.openai_image import OpenAIImageModel
-
-        return OpenAIImageModel()
-
-    if provider_name in {"anthropic", "google"}:
-        raise ConfigurationError(
-            f"Image generation is not implemented for provider {provider_name!r}."
-        )
-
-    raise ConfigurationError(
-        f"Unsupported image provider: {provider_name!r}. "
-        f"Expected one of: 'openai', 'anthropic', 'google'."
-    )
 
 
 def generate_image(
     *,
-    provider=None,
+    provider: Any = None,
     provider_name: Optional[str] = None,
     prompt: str,
     model: Optional[str] = None,
@@ -52,13 +34,16 @@ def generate_image(
         user=user,
     )
 
-    resolved_provider = provider or get_image_model(provider_name)
-    return resolved_provider.generate(request)
+    resolved_provider = resolve_provider(provider, provider_name)
+    require_capability(
+        resolved_provider, ImageGenerationCapability, "ImageGenerationCapability"
+    )
+    return resolved_provider.generate_image(request)
 
 
 def generate_image_b64(
     *,
-    provider=None,
+    provider: Any = None,
     provider_name: Optional[str] = None,
     prompt: str,
     model: Optional[str] = None,

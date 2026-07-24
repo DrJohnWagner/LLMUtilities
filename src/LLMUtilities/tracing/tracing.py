@@ -6,52 +6,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
-from ..types import ChatRequest, ChatResponse, Message
+from ..types import ChatRequest, ChatResponse, CostSummary, ImageResponse, Message
 from ..utils import serialise_content, truncate_text
 
-# from LLMUtilities.logging.tracing import log_chat_request, log_chat_response
-# from LLMUtilities.types import ChatRequest, Message
-
-# request = ChatRequest(
-#     messages=[
-#         Message(role="system", content="You are a poet."),
-#         Message(role="user", content="Write a haiku about recursion."),
-#     ]
-# )
-
-# log_chat_request(
-#     "logs/traces.jsonl",
-#     request,
-#     provider="openai",
-#     resolved_model="gpt-5-mini",
-# )
-
-#
-# THEN after a response is received from the model, you can log the response:
-#
-
-# log_chat_response(
-#     "logs/traces.jsonl",
-#     response,
-# )
-
-# A JSONL log line will look roughly like:
-# {
-#     "event_type": "chat_request",
-#     "timestamp": "2026-04-15T12:34:56.789012+00:00",
-#     "provider": "openai",
-#     "model": "gpt-5-mini",
-#     "payload": {
-#         "messages": [
-#             {"role": "system", "content": "You are a poet."},
-#             {"role": "user", "content": "Write a haiku about recursion."},
-#         ],
-#         "request_model": null,
-#         "resolved_model": "gpt-5-mini",
-#         "temperature": null,
-#         "max_output_tokens": null,
-#     },
-# }
 
 def utc_timestamp() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -62,7 +19,8 @@ class TraceRecord:
     event_type: str
     timestamp: str
     provider: Optional[str] = None
-    model: Optional[str] = None
+    requested_model: Optional[str] = None
+    resolved_model: Optional[str] = None
     payload: dict[str, Any] = field(default_factory=dict)
 
 
@@ -80,9 +38,7 @@ def append_trace_record(path: str | Path, record: TraceRecord) -> None:
 
 
 def serialise_message(
-    message: Message,
-    *,
-    max_chars: Optional[int] = None,
+    message: Message, *, max_chars: Optional[int] = None
 ) -> dict[str, Any]:
     return {
         "role": message.role,
@@ -91,14 +47,9 @@ def serialise_message(
 
 
 def serialise_messages(
-    messages: Sequence[Message],
-    *,
-    max_chars: Optional[int] = None,
+    messages: Sequence[Message], *, max_chars: Optional[int] = None
 ) -> list[dict[str, Any]]:
-    return [
-        serialise_message(message, max_chars=max_chars)
-        for message in messages
-    ]
+    return [serialise_message(message, max_chars=max_chars) for message in messages]
 
 
 def log_chat_request(
@@ -106,18 +57,15 @@ def log_chat_request(
     request: ChatRequest,
     *,
     provider: Optional[str] = None,
-    resolved_model: Optional[str] = None,
     max_chars: Optional[int] = 2000,
     extra_payload: Optional[dict[str, Any]] = None,
 ) -> None:
     payload = {
         "messages": serialise_messages(request.messages, max_chars=max_chars),
-        "request_model": request.model,
-        "resolved_model": resolved_model,
+        "requested_model": request.model,
         "temperature": request.temperature,
         "max_output_tokens": request.max_output_tokens,
     }
-
     if extra_payload:
         payload.update(extra_payload)
 
@@ -125,7 +73,8 @@ def log_chat_request(
         event_type="chat_request",
         timestamp=utc_timestamp(),
         provider=provider,
-        model=resolved_model or request.model,
+        requested_model=request.model,
+        resolved_model=None,
         payload=payload,
     )
     append_trace_record(path, record)
@@ -135,19 +84,20 @@ def log_chat_response(
     path: str | Path,
     response: ChatResponse,
     *,
+    cost_summary: Optional[CostSummary] = None,
     max_chars: Optional[int] = 4000,
     include_raw: bool = False,
     extra_payload: Optional[dict[str, Any]] = None,
 ) -> None:
-    payload = {
+    payload: dict[str, Any] = {
         "text": truncate_text(response.text, max_chars=max_chars),
         "usage": _serialise_usage(response),
         "stop_reason": response.stop_reason,
     }
-
+    if cost_summary is not None:
+        payload["cost_summary"] = cost_summary.model_dump()
     if include_raw:
         payload["raw"] = _safe_raw_repr(response.raw, max_chars=max_chars)
-
     if extra_payload:
         payload.update(extra_payload)
 
@@ -155,7 +105,37 @@ def log_chat_response(
         event_type="chat_response",
         timestamp=utc_timestamp(),
         provider=response.provider,
-        model=response.model,
+        requested_model=response.requested_model,
+        resolved_model=response.resolved_model,
+        payload=payload,
+    )
+    append_trace_record(path, record)
+
+
+def log_image_response(
+    path: str | Path,
+    response: ImageResponse,
+    *,
+    cost_summary: Optional[CostSummary] = None,
+    include_raw: bool = False,
+    extra_payload: Optional[dict[str, Any]] = None,
+) -> None:
+    payload: dict[str, Any] = {
+        "artifact_count": len(response.artifacts),
+    }
+    if cost_summary is not None:
+        payload["cost_summary"] = cost_summary.model_dump()
+    if include_raw:
+        payload["raw"] = _safe_raw_repr(response.raw)
+    if extra_payload:
+        payload.update(extra_payload)
+
+    record = TraceRecord(
+        event_type="image_response",
+        timestamp=utc_timestamp(),
+        provider=response.provider,
+        requested_model=response.requested_model,
+        resolved_model=response.resolved_model,
         payload=payload,
     )
     append_trace_record(path, record)
@@ -169,11 +149,7 @@ def log_error(
     model: Optional[str] = None,
     extra_payload: Optional[dict[str, Any]] = None,
 ) -> None:
-    payload = {
-        "error_type": type(error).__name__,
-        "error_message": str(error),
-    }
-
+    payload = {"error_type": type(error).__name__, "error_message": str(error)}
     if extra_payload:
         payload.update(extra_payload)
 
@@ -181,7 +157,8 @@ def log_error(
         event_type="error",
         timestamp=utc_timestamp(),
         provider=provider,
-        model=model,
+        requested_model=model,
+        resolved_model=None,
         payload=payload,
     )
     append_trace_record(path, record)
@@ -192,19 +169,14 @@ def _safe_raw_repr(raw: Any, *, max_chars: Optional[int] = None) -> str:
         text = repr(raw)
     except Exception:
         text = "<unrepresentable raw object>"
-
     return truncate_text(text, max_chars=max_chars)
 
 
-def _serialise_usage(response: ChatResponse) -> dict[str, Any] | None:
+def _serialise_usage(response: ChatResponse) -> Optional[dict[str, Any]]:
     if response.usage is None:
         return None
-
     return {
-        "input_tokens": response.usage.input_tokens,
-        "output_tokens": response.usage.output_tokens,
+        "total_input_tokens": response.usage.total_input_tokens,
+        "total_output_tokens": response.usage.total_output_tokens,
         "total_tokens": response.usage.total_tokens,
-        "cached_input_tokens": response.usage.cached_input_tokens,
-        "cache_creation_input_tokens": response.usage.cache_creation_input_tokens,
-        "cache_read_input_tokens": response.usage.cache_read_input_tokens,
     }
